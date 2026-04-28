@@ -1,0 +1,92 @@
+.debug-table-container {
+    height: 300px;
+    box-sizing: border-box;
+
+    display: flex;
+    flex-direction: column;
+    background-color: #2e2e2e;
+    color: #eeeeee;
+    font-family: monospace;
+    overflow: hidden;
+}
+
+.debug-table-scroll-wrapper {
+    flex: 1 1 auto;
+    overflow-y: auto;
+}
+
+.debug-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.debug-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.debug-table-header {
+    background: #3a3a3a;
+    padding: 4px 8px;
+    height: 1.5em;
+    color: #ffffff;
+}
+
+.debug-table-row td {
+    padding: 4px 8px;
+    border-bottom: 1px solid #444;
+    height: 1em;
+}
+
+.debug-table-row:nth-child(odd) td {
+    background-color: #393939;
+}
+
+.debug-table-row:nth-child(even) td {
+    background-color: #2f2f2f;
+}
+
+.debug-table-last-row td {
+    border-bottom: 1px solid #666;
+}
+
+.debug-table-first-row td.debug-table-ray-index {
+    border-right: 1px solid #555;
+    border-bottom: 1px solid #666;
+    padding: 2px 8px;
+    text-align: center;
+    vertical-align: middle;
+    background-color: #4a4a4a;
+}
+
+.pagination-container {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    padding: 4px 0;
+    background: #3a3a3a;
+    border-top: 1px solid #444;
+}
+
+.pagination-button {
+    margin: 0 4px;
+    border: 1px solid #555;
+    background: #444;
+    color: #eee;
+    cursor: pointer;
+    min-width: 2.1em;
+    max-width: 4em;
+    text-align: center;
+}
+
+.pagination-button.active {
+    background: #888;
+    color: #fff;
+    border-color: #666;
+}
+
+.pagination-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}

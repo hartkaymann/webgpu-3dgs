@@ -1,0 +1,289 @@
+/* Disable page scroll */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #e4e4e4;
+  color: #0a0a0a;
+}
+
+/* Main horizontal layout */
+#main-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 2px;
+}
+
+.workspace.active {
+  display: flex;
+  gap: 2px;
+}
+
+.workspace {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+#toolbar {
+  flex: 0 0 32px;
+  height: 32px;
+  width: 100%;
+  background-color: #262626;
+  color: #eee;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  box-sizing: border-box;
+  font-family: monospace;
+}
+
+#toolbar-button {
+  background-color: #444;
+  color: #eee;
+  border: 1px solid #666;
+  padding: 0.4em 0.8em;
+  font-family: monospace;
+  font-size: 0.9em;
+  border-radius: 0.3em;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.panel {
+  box-sizing: border-box;
+  overflow: auto;
+  background-color: #2e2e2e;
+  border: 1px solid #2c2c2c;
+  border-radius: 0.5em;
+}
+
+#left-panel {
+  flex: 1 1 auto;
+  /* Allow growing */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Match width of canvas and debug-table */
+canvas#gfx-main {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#canvas-wrapper {
+  flex: 1 1 auto;
+  /* Expand to available space */
+  display: flex;
+  position: relative;
+  max-height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+#fps-counter {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #eee;
+  font-size: 12px;
+  font-family: monospace;
+  padding: 2px 4px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Right panel (controls + debug) */
+#right-panel {
+  width: 360px;
+  min-width: 300px;
+  max-width: 400px;
+  overflow-y: auto;
+
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#controls-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #eee;
+  font-family: monospace;
+}
+
+.debug-controls {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0.75em;
+  box-sizing: border-box;
+}
+
+.controls-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+  padding: 1em;
+  background-color: #262626;
+  border-bottom: 1px solid #3a3a3a;
+  font-family: monospace;
+  font-size: 0.9em;
+  box-sizing: border-box;
+}
+
+.controls-container label {
+  font-size: 0.9em;
+  color: #eee;
+}
+
+.controls-container input[type="file"] {
+  flex-grow: 1;
+  max-width: 100%;
+}
+
+.controls-container button {
+  background-color: #444;
+  color: #eee;
+  border: 1px solid #666;
+  padding: 0.4em 0.8em;
+  font-family: monospace;
+  font-size: 0.9em;
+  border-radius: 0.3em;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.controls-container button:hover:enabled {
+  background-color: #555;
+}
+
+.input-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75em;
+  background-color: #2a2a2a;
+  padding: 0.75em;
+  border-radius: 0.5em;
+  border: 1px solid #3a3a3a;
+}
+
+.input-group>div {
+  display: flex;
+  gap: 1em;
+}
+
+.input-group .full-width {
+  flex-basis: 100%;
+}
+
+.input-group label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85em;
+  min-width: 100px;
+  max-width: 160px;
+}
+
+.toggles {
+  flex-wrap: wrap;
+}
+
+label:has(input[type="checkbox"]) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  white-space: nowrap;
+  gap: 0.5em;
+  /* Optional for spacing between checkbox and text */
+}
+
+#controls-panel .debug-controls {
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+button {
+  background-color: #444;
+  color: #eee;
+  border: 1px solid #666;
+  padding: 0.4em 0.8em;
+  font-family: monospace;
+  font-size: 0.9em;
+  border-radius: 0.3em;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+button:hover:enabled {
+  background-color: #555;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#profiler-panel {
+  min-height: 300px;
+  max-height: 300px;
+  overflow: hidden;
+  padding: 1em;
+  color: #eee;
+  font-family: monospace;
+}
+
+
+#buffer-toggle {
+  cursor: pointer;
+  color: #0ff;
+  margin-top: 4px;
+}
+
+#buffer-list {
+  display: none;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 0.5em;
+  padding-right: 0.5em;
+}
+
+.buffer-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2em 0;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+#fallback-message {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  text-align: center;
+  max-width: 600px;
+  margin: 2em auto;
+  font-size: 1.1em;
+}
+
+
+#fallback-message a {
+  text-decoration: underline;
+  color: #eee;
+}

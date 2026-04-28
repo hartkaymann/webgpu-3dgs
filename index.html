@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="./styles/style.css" />
+  <link rel="stylesheet" href="./styles/debug-table.css" />
+  <link rel="stylesheet" href="./styles/toast.css" />
+  <title>3DGS Renderer</title>
+</head>
+
+<body>
+  <div id="toast-container"></div>
+
+  <div id="main-layout">
+
+    <div id="toolbar">
+      <button id="process-button" class="toolbar-button">Render</button>
+    </div>
+
+    <div class="workspace active" id="workspace-render">
+      <div id="left-panel">
+        <div class="panel" id="canvas-wrapper">
+          <div id="fallback-message" style="display: none; padding: 2em; font-family: monospace; color: red;">
+            <p>WebGPU is not supported in this browser.</p>
+            <a href="https://caniuse.com/webgpu" target="_blank" rel="noopener">
+              Check WebGPU support &#8594;
+            </a>
+          </div>
+          <canvas id="gfx-main"></canvas>
+          <div id="fps-counter">fps: <span id="fps"></span></div>
+        </div>
+      </div>
+
+      <div id="right-panel">
+        <div class="panel" id="controls-panel">
+
+            <div class="input-group toggles">
+              <label><input type="checkbox" id="renderPoints" checked> Render Points</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="profiler-panel">
+          <div>
+            <div id="gpu-mem">Buffers Total: -- MB</div>
+            <div id="buffer-toggle">&#x25B6; Show Buffers</div>
+            <div id="buffer-list"></div>
+          </div>
+          <div id="gpu-timers" style="margin-top: 1em;">
+            <div id="gpu-timer-title" style="margin-bottom: 0.5em;">Shader Timings</div>
+            <table id="gpu-timer-table" style="width: 100%; font-family: monospace; color: #ccc;">
+              <thead>
+                <tr style="text-align: left;">
+                  <th>Shader</th>
+                  <th style="text-align: right;">Time (µs)</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+
+  <script type="module" src="src/main.ts"></script>
+</body>
+
+
+</html>
