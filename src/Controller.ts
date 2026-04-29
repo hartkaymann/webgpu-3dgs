@@ -3,8 +3,8 @@ import { BufferManager } from "./BufferManager";
 import { Gizmo } from "./Gizmo";
 import { PipelineManager } from "./PipelineManager";
 import { Scene } from "./Scene";
+import { SceneSyncer } from "./SceneSyncer";
 import { UIController } from "./ui/UIController";
-import { Utils } from "./Utils";
 import { Viewport } from "./Viewport";
 
 export interface RenderPlan {
@@ -20,6 +20,7 @@ export class Controller {
     device: GPUDevice;
 
     scene: Scene;
+    sync: SceneSyncer;
 
     viewports: Viewport;
 
@@ -53,7 +54,8 @@ export class Controller {
         this.bindGroupsManager = new BindGroupManager(this.device, this.bufferManager);
         
         this.scene = new Scene();
-
+        this.sync = new SceneSyncer(this.scene, this.device, this.bufferManager, this.bindGroupsManager);
+        
         this.viewports = new Viewport(this.device, this.scene, this.bufferManager, this.bindGroupsManager);
     }
 
@@ -128,6 +130,11 @@ export class Controller {
         this.animationFrameId = requestAnimationFrame(this.render);
     };
 
+    async setSplatData() {
+        await this.sync.setPointData(); // TODO: rename
+        this.canRender.points = true;
+    }
+
     calculateFPS(currTime: number) {
         this.frameCount++;
 
@@ -152,7 +159,6 @@ export class Controller {
             gizmo: this.canRender.gizmo,
         }
     }
-
 
     reset() {
         this.canRender = {

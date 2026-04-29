@@ -6,5 +6,5 @@ export default {
       fileRegex: /\.wgsl$/,
     }),
   ],
-  base: '/viewsheds/'
+  base: '/3dgs/'
 };

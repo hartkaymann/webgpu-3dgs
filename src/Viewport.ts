@@ -119,22 +119,17 @@ export class Viewport {
     ]);
 
     this.bindGroupManager.createLayout({
-      name: "points",
+      name: "render",
       entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
       ]
     });
 
     this.bindGroupManager.createLayout({
-      name: "render",
+      name: "points",
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-        { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       ]
     });
 
@@ -177,6 +172,7 @@ export class Viewport {
       layoutName: "points",
       entries: [
         { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
+        { binding: 1, resource: { buffer: this.bufferManager.get("colors") } },
       ]
     });
 
@@ -469,10 +465,26 @@ export class Viewport {
     this.bufferManager.clear("point_visibility");
   }
 
+  focusCameraOnScene(scene: Scene) {
+    const bounds = this.scene.bounds;
+
+    const centerX = (bounds.min.x + bounds.max.x) / 2;
+    const centerY = (bounds.min.y + bounds.max.y) / 2;
+    const centerZ = (bounds.min.z + bounds.max.z) / 2;
+
+    // Move the camera back along the Z-axis to fit the whole cloud in view
+    const distance = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z) * 1.5;
+
+    this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + distance));
+    this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
+  }
+
   resize(width: number, height: number) {
     this.canvas.width = width;
     this.canvas.height = height;
 
     this.configureContext();
+
+    this.createDepthTexture(width, height);
   }
 }

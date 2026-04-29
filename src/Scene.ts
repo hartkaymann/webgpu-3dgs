@@ -1,13 +1,14 @@
+import { Bounds, GaussianSplatData } from "./types/types";
 
 export class Scene {
 
-    points: Float32Array = new Float32Array();
-    colors: Float32Array = new Float32Array();
-
+    splats: GaussianSplatData | null = null;
+    bounds: Bounds | null = null;
+    
     constructor() { }
 
     clear() {
-        this.points = new Float32Array();
-        this.colors = new Float32Array();
+        this.splats = null;
+        this.bounds = null;
     }
 }

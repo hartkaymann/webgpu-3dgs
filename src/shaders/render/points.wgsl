@@ -8,7 +8,6 @@ struct Uniforms {
 
 @group(0) @binding(2) var<storage, read> pointVisibilityBuffer: array<u32>;
 @group(0) @binding(4) var<uniform> uniforms: Uniforms;
-@group(1) @binding(0) var<uniform> renderMode: u32;  
 
 struct VertexOutput {
   @builtin(position) position: vec4f,

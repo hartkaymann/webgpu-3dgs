@@ -5,6 +5,16 @@ export interface Bounds {
     max: { x: number; y: number; z: number };
 }
 
+export interface GaussianSplatData {
+    points: Float32Array;
+    colors: Float32Array;
+    scales: Float32Array;
+    rotations: Float32Array;
+    sphericalHarmonics: Float32Array | null;
+    sphericalHarmonicsDegree: number;
+    splatCount: number;
+}
+
 export interface AABB {
     pos: vec3,
     size: vec3
