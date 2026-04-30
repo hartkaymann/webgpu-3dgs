@@ -1,5 +1,6 @@
 import { BindGroupManager } from "./BindGroupsManager";
 import { BufferManager } from "./BufferManager";
+import { Profiler } from "./Profiler";
 import { Scene } from "./Scene";
 import { SceneSyncer } from "./SceneSyncer";
 import { WebGPUContext } from "./types/types";
@@ -30,6 +31,8 @@ export class Controller {
     bufferManager: BufferManager;
     bindGroupsManager: BindGroupManager;
 
+    profiler: Profiler;
+
     renderSettings: RenderSettings = {
         grid: true,
         splats: true,
@@ -54,6 +57,9 @@ export class Controller {
 
         this.bufferManager = new BufferManager(this.gpu.device);
         this.bindGroupsManager = new BindGroupManager(this.gpu.device, this.bufferManager);
+
+        this.profiler = new Profiler(this.gpu.device);
+        this.profiler.setBufferManager(this.bufferManager);
 
         this.scene = new Scene();
         this.sync = new SceneSyncer(this.scene, this.gpu.device, this.bufferManager, this.bindGroupsManager);

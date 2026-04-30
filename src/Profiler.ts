@@ -25,7 +25,7 @@ export class Profiler {
         this.gpuMemoryMax = device.limits.maxStorageBufferBindingSize;
         this.canTimestamp = device.features.has("timestamp-query");
     }
-    
+
     // Profile CPU
     static profile<T>(label: string, fn: () => T): T {
         const start = performance.now();
@@ -158,18 +158,32 @@ export class Profiler {
         return null;
     }
 
+    private formatBufferSize(bytes: number): string {
+        if (bytes < 1000) {
+            return `${bytes} byte${bytes === 1 ? "" : "s"}`;
+        }
+
+        const sizeKB = bytes / 1024;
+
+        if (sizeKB < 1000) {
+            return `${sizeKB.toFixed(2)} KB`;
+        }
+
+        const sizeMB = sizeKB / 1024;
+        return `${sizeMB.toFixed(2)} MB`;
+    }
+
     updateBufferSizePanel() {
-        const totalSizeMB = this.getTotalBufferSize() / 1024 / 1024;
         const gpuMemEl = document.getElementById("gpu-mem")!;
         const listEl = document.getElementById("buffer-list")!;
         const toggleEl = document.getElementById("buffer-toggle")!;
 
-        gpuMemEl.textContent = `Buffers Total: ${totalSizeMB.toFixed(2)} MB`;
+        gpuMemEl.textContent = `Buffers Total: ${this.formatBufferSize(this.getTotalBufferSize())}`;
 
         const buffers = this.getBuffersSortedBySize();
         listEl.innerHTML = buffers.map(buf => {
-            const sizeMB = (buf.size / 1024 / 1024).toFixed(2);
-            return `<div class="buffer-row"><span>${buf.name}</span><span>${sizeMB} MB</span></div>`;
+            const formattedSize = this.formatBufferSize(buf.size);
+            return `<div class="buffer-row"><span>${buf.name}</span><span>${formattedSize}</span></div>`;
         }).join("");
 
         // Toggle logic
