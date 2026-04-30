@@ -45,7 +45,7 @@ type GaussianPropertyLayout = {
 };
 
 type GaussianSplatData = {
-    points: Float32Array;
+    positions: Float32Array;
     colors: Float32Array;
     scales: Float32Array;
     rotations: Float32Array;
@@ -112,7 +112,7 @@ async function handleLoadAndRespond(
     if (shouldShutdown) return;
 
     const transferables: Transferable[] = [
-        data.splats.points.buffer,
+        data.splats.positions.buffer,
         data.splats.colors.buffer,
         data.splats.scales.buffer,
         data.splats.rotations.buffer,
@@ -392,7 +392,7 @@ function createGaussianSplatData(
     fRestCount: number
 ): GaussianSplatData {
     return {
-        points: new Float32Array(splatCount * 4),
+        positions: new Float32Array(splatCount * 4),
         colors: new Float32Array(splatCount * 4),
         scales: new Float32Array(splatCount * 4),
         rotations: new Float32Array(splatCount * 4),
@@ -417,10 +417,10 @@ function writeGaussianSplat(
     const y = required(row, "y");
     const z = required(row, "z");
 
-    data.points[pointOffset + 0] = x;
-    data.points[pointOffset + 1] = y;
-    data.points[pointOffset + 2] = z;
-    data.points[pointOffset + 3] = 1.0;
+    data.positions[pointOffset + 0] = x;
+    data.positions[pointOffset + 1] = y;
+    data.positions[pointOffset + 2] = z;
+    data.positions[pointOffset + 3] = 1.0;
 
     updateBounds(bounds, x, y, z);
 

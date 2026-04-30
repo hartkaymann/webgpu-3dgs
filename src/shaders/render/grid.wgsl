@@ -1,8 +1,12 @@
 
-struct GridUniforms {
-    gVP: mat4x4f,
-    cameraWorldPos: vec3f,
+struct CameraUniforms {
+    viewMatrix: mat4x4f,
+    projectionMatrix: mat4x4f,
+    cameraPosition: vec4f,
 };
+
+@group(0) @binding(0)
+var<uniform> camera: CameraUniforms;
 
 const positions = array<vec3<f32>, 4>(
     // Bottom face edges
@@ -18,9 +22,6 @@ const gridMinPixelsBetweenCells = 4.0;
 const gridCellSize = 40.0;
 const gridColorThin = vec4(0.6, 0.6, 0.6, 0.5);
 const gridColorThick = vec4(0.8, 0.8, 0.8, 1.0);
-
-@group(0) @binding(0)
-var<uniform> uniforms: GridUniforms;
 
 struct VertexOutput {
     @builtin(position) position: vec4f,
@@ -52,15 +53,15 @@ fn main(
 ) -> VertexOutput {
     var pos = positions[indices[vertex_index]] * gridSize;
 
-    pos.x += uniforms.cameraWorldPos.x;
-    pos.z += uniforms.cameraWorldPos.z;
+    pos.x += camera.cameraPosition.x;
+    pos.z += camera.cameraPosition.z;
 
     let worldPos = pos;
     let pos4 = vec4f(pos, 1.0);
 
     var out: VertexOutput;
     out.worldPos = pos;
-    out.position = uniforms.gVP * vec4f(pos, 1.0);
+    out.position = camera.projectionMatrix * camera.viewMatrix * pos4;
 
     return out;
 }
@@ -132,7 +133,7 @@ fn main_fs(
         color.a *= lod0a;
     }
 
-    let fade = 1.0 - satf(distance(worldPos.xz, uniforms.cameraWorldPos.xz) / gridSize);
+    let fade = 1.0 - satf(distance(worldPos.xz, camera.cameraPosition.xz) / gridSize);
     let opacityFalloff = pow(fade, 2.5);
     color.a *= opacityFalloff;
 

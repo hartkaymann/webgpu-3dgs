@@ -1,5 +1,5 @@
 
-import points_src from "./shaders/render/points.wgsl"
+import splats_src from "./shaders/render/splats.wgsl"
 import gizmo_src from "./shaders/render/gizmo.wgsl"
 import grid_src from "./shaders/render/grid.wgsl"
 
@@ -13,6 +13,7 @@ import { Scene } from "./Scene";
 import { PipelineManager } from "./PipelineManager";
 import { RenderPlan } from "./Controller"
 import { Grid } from "./Grid"
+import { WebGPUContext } from "./types/types";
 
 export class Viewport {
   device: GPUDevice;
@@ -31,16 +32,13 @@ export class Viewport {
   grid: Grid | null = null;
 
   // Device/Context objects
-  renderPassDescriptor: GPURenderPassDescriptor;
-  transparentPassDescriptor: GPURenderPassDescriptor;
-  compositePassDescriptor: GPURenderPassDescriptor;
+  clearPassDescriptor: GPURenderPassDescriptor;
   gridPassDescriptor: GPURenderPassDescriptor;
+  splatPassDescriptor: GPURenderPassDescriptor;
   gizmoPassDescriptor: GPURenderPassDescriptor;
 
   //Assets
   depthTexture: GPUTexture;
-  accumTexture: GPUTexture;
-  revealageTexture: GPUTexture;
   depthView: GPUTextureView;
 
   constructor(device: GPUDevice, scene: Scene, buffers: BufferManager, bind: BindGroupManager) {
@@ -88,17 +86,32 @@ export class Viewport {
     this.grid = new Grid();
   }
 
-  async init() {
-    this.context = <GPUCanvasContext>this.canvas.getContext("webgpu");
-    this.format = "bgra8unorm";
+  async init(gpu: WebGPUContext): Promise<void> {
+    this.context = this.canvas.getContext(gpu.canvasContextName) as GPUCanvasContext;
+    this.format = gpu.presentationFormat;
 
     this.configureContext();
 
     this.bufferManager.initBuffers([
       {
-        name: "vs_uniforms",
-        size: 192,
+        name: "camera_uniforms",
+        size: 64 + 64 + 16, // view + projection + camera position
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      },
+      {
+        name: "splat_uniforms",
+        size: 64, // model matrix
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      },
+      {
+        name: "positions",
+        size: 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      },
+      {
+        name: "colors",
+        size: 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       },
       {
         name: "gizmo_vertices",
@@ -108,37 +121,28 @@ export class Viewport {
       },
       {
         name: "gizmo_uniforms",
-        size: 192,
+        size: 64 + 64 + 64,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       },
-      {
-        name: "grid_uniforms",
-        size: 80,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      }
     ]);
 
     this.bindGroupManager.createLayout({
-      name: "render",
+      name: "camera",
       entries: [
-        { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-      ]
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+          buffer: { type: "uniform" },
+        },
+      ],
     });
 
     this.bindGroupManager.createLayout({
-      name: "points",
+      name: "splats",
       entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-      ]
-    });
-
-    this.bindGroupManager.createLayout({
-      name: "composite",
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+        { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       ]
     });
 
@@ -149,33 +153,25 @@ export class Viewport {
       ]
     });
 
-    this.bindGroupManager.createLayout({
-      name: "grid",
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-      ]
-    });
-
     this.createDepthTexture(this.context.canvas.width, this.context.canvas.height);
 
     this.bindGroupManager.createGroup({
-      name: "render",
-      layoutName: "render",
+      name: "camera",
+      layoutName: "camera",
       entries: [
-        { binding: 4, resource: { buffer: this.bufferManager.get("vs_uniforms") } },
-      ]
+        { binding: 0, resource: { buffer: this.bufferManager.get("camera_uniforms") } },
+      ],
     });
-
 
     this.bindGroupManager.createGroup({
-      name: "points",
-      layoutName: "points",
+      name: "splats",
+      layoutName: "splats",
       entries: [
-        { binding: 0, resource: { buffer: this.bufferManager.get("points") } },
-        { binding: 1, resource: { buffer: this.bufferManager.get("colors") } },
-      ]
+        { binding: 0, resource: { buffer: this.bufferManager.get("splat_uniforms") } },
+        { binding: 1, resource: { buffer: this.bufferManager.get("positions") } },
+        { binding: 2, resource: { buffer: this.bufferManager.get("colors") } },
+      ],
     });
-
 
     this.bindGroupManager.createGroup({
       name: "gizmo",
@@ -185,98 +181,59 @@ export class Viewport {
       ]
     });
 
-    this.bindGroupManager.createGroup({
-      name: "grid",
-      layoutName: "grid",
-      entries: [
-        { binding: 0, resource: { buffer: this.bufferManager.get("grid_uniforms") } },
-      ]
-    });
-
-    const pipeline_layout_points = this.device.createPipelineLayout({
-      label: 'pipeline-layout-points',
-      bindGroupLayouts: this.bindGroupManager.getLayouts(["render", "points"])
+    const pipeline_layout_splats = this.device.createPipelineLayout({
+      label: "pipeline-layout-splats",
+      bindGroupLayouts: this.bindGroupManager.getLayouts(["camera", "splats"]),
     });
     const pipeline_layout_gizmo = this.device.createPipelineLayout({
       label: 'pipeline-layout-gizmo',
       bindGroupLayouts: this.bindGroupManager.getLayouts(["gizmo"])
     });
     const pipeline_layout_grid = this.device.createPipelineLayout({
-      label: 'pipeline-layout-grid',
-      bindGroupLayouts: this.bindGroupManager.getLayouts(["grid"])
+      label: "pipeline-layout-grid",
+      bindGroupLayouts: this.bindGroupManager.getLayouts(["camera"]),
     });
 
     this.pipelineManager.create({
-      name: "render-points",
+      name: "render-splats",
       type: "render",
-      layout: pipeline_layout_points,
-      code: points_src,
+      layout: pipeline_layout_splats,
+      code: splats_src,
       render: {
         vertex: {
-          entryPoint: 'main',
-          buffers: [
-            {
-              arrayStride: 4 * 4, // 4 floats @ 4 bytes
-              attributes: [
-                {
-                  shaderLocation: 0, // Position
-                  offset: 0,
-                  format: 'float32x4'
-                }
-              ]
-            },
-            {
-              arrayStride: 4 * 4, // 4 floats @ 4 bytes
-              attributes: [
-                {
-                  shaderLocation: 1, // Color
-                  offset: 0,
-                  format: 'float32x4'
-                }
-              ]
-            }
-          ]
+          entryPoint: "main",
+          buffers: [],
         },
         fragment: {
-          entryPoint: 'main_fs',
-          targets: [{
-            format: 'rgba16float',
-            blend: {
-              color: {
-                srcFactor: "one",
-                dstFactor: "one",
-                operation: "add",
-              },
-              alpha: {
-                srcFactor: "one",
-                dstFactor: "one",
-                operation: "add",
+          entryPoint: "main_fs",
+          targets: [
+            {
+              format: this.format,
+              blend: {
+                color: {
+                  srcFactor: "src-alpha",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
+                alpha: {
+                  srcFactor: "one",
+                  dstFactor: "one-minus-src-alpha",
+                  operation: "add",
+                },
               },
             },
-          },
-          {
-            format: 'r16float',
-            blend: undefined,
-            // blend: {
-            //   color: {
-            //     srcFactor: "one",
-            //     dstFactor: "one",
-            //     operation: "add",
-            //   },
-            //   alpha: {
-            //     srcFactor: "zero",
-            //     dstFactor: "one",
-            //     operation: "add",
-            //   },
-            // },
-          },
-          ]
+          ],
         },
-        primitive: { topology: 'point-list' },
-        depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
+        primitive: {
+          topology: "point-list",
+        },
+        depthStencil: {
+          format: "depth24plus",
+          depthWriteEnabled: false,
+          depthCompare: "less",
+        },
       },
     });
-
 
     this.pipelineManager.create({
       name: "render-gizmo",
@@ -296,7 +253,7 @@ export class Viewport {
         fragment: {
           entryPoint: 'main_fs',
           targets: [
-            { format: 'bgra8unorm' }
+            { format: this.format }
           ]
         },
         primitive: {
@@ -318,7 +275,7 @@ export class Viewport {
           entryPoint: 'main_fs',
           targets: [
             {
-              format: 'bgra8unorm',
+              format: this.format,
               blend: {
                 color: {
                   srcFactor: "src-alpha",
@@ -345,26 +302,42 @@ export class Viewport {
       }
     });
 
-    this.gridPassDescriptor = {
-      label: 'pass-grid',
+    this.clearPassDescriptor = {
+      label: "pass-clear",
       colorAttachments: [
         {
           view: undefined,
           loadOp: "clear",
           storeOp: "store",
-          clearValue: { r: 0.12, g: 0.12, b: 0.13, a: 1.0 }, // Optional
-        }
+          clearValue: { r: 0.12, g: 0.12, b: 0.13, a: 1.0 },
+        },
       ],
       depthStencilAttachment: {
         view: this.depthView,
+        depthClearValue: 1.0,
         depthLoadOp: "clear",
         depthStoreOp: "store",
-        depthClearValue: 1.0,
-      }
+      },
     };
 
-    this.renderPassDescriptor = {
-      label: 'pass-render',
+    this.gridPassDescriptor = {
+      label: "pass-grid",
+      colorAttachments: [
+        {
+          view: undefined,
+          loadOp: "load",
+          storeOp: "store",
+        },
+      ],
+      depthStencilAttachment: {
+        view: this.depthView,
+        depthLoadOp: "load",
+        depthStoreOp: "store",
+      },
+    };
+
+    this.splatPassDescriptor = {
+      label: 'pass-splats',
       colorAttachments: [
         {
           view: undefined,
@@ -412,32 +385,54 @@ export class Viewport {
   }
 
   runRenderPass(plan: RenderPlan) {
-    this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 64, new Float32Array(this.camera.viewMatrix));
-    this.device.queue.writeBuffer(this.bufferManager.get("vs_uniforms"), 128, new Float32Array(this.camera.projectionMatrix));
+    this.bufferManager.write("camera_uniforms", new Float32Array(this.camera.viewMatrix), 0);
+    this.bufferManager.write("camera_uniforms", new Float32Array(this.camera.projectionMatrix), 64);
+
+    const cameraPosition = new Float32Array(4);
+    cameraPosition.set(this.camera.position);
+    this.bufferManager.write("camera_uniforms", cameraPosition, 128);
+
+    const splatModel = mat4.create(); // identity for now
+    this.bufferManager.write("splat_uniforms", new Float32Array(splatModel), 0);
 
     const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
     const swapchainTexture = this.context.getCurrentTexture();
     const swapchainView = swapchainTexture.createView();
 
+    // Begin: Clear pass
+    this.clearPassDescriptor.colorAttachments[0].view = swapchainView;
+    this.clearPassDescriptor.depthStencilAttachment!.view = this.depthView;
+
+    const clearPass = commandEncoder.beginRenderPass(this.clearPassDescriptor);
+    clearPass.end();
+    // End: Clear pass
+
     // Begin: Render grid
-    const vpMatrix = mat4.create();
-    mat4.multiply(vpMatrix, this.camera.projectionMatrix, this.camera.viewMatrix);
-    const vpMatrixBuffer = new Float32Array(vpMatrix);
-    const cameraPositionBuffer = new Float32Array(4);
-    cameraPositionBuffer.set(this.camera.position);
+    if (plan.grid) {
+      this.gridPassDescriptor.colorAttachments[0].view = swapchainView;
+      this.gridPassDescriptor.depthStencilAttachment!.view = this.depthView;
 
-    this.bufferManager.write("grid_uniforms", vpMatrixBuffer, 0);
-    this.bufferManager.write("grid_uniforms", cameraPositionBuffer, 64);
-
-    this.gridPassDescriptor.colorAttachments[0].view = swapchainView;
-    this.gridPassDescriptor.depthStencilAttachment!.view = this.depthView;
-
-    const gridPass: GPURenderPassEncoder = commandEncoder.beginRenderPass(this.gridPassDescriptor);
-    gridPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-grid"));
-    gridPass.setBindGroup(0, this.bindGroupManager.getGroup("grid"));
-    gridPass.draw(6);
-    gridPass.end();
+      const gridPass = commandEncoder.beginRenderPass(this.gridPassDescriptor);
+      gridPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-grid"));
+      gridPass.setBindGroup(0, this.bindGroupManager.getGroup("camera"));
+      gridPass.draw(6);
+      gridPass.end();
+    }
     // End: Render grid
+
+    // Begin: Render splats
+    if (plan.splats && this.scene.splats) {
+      this.splatPassDescriptor.colorAttachments[0].view = swapchainView;
+      this.splatPassDescriptor.depthStencilAttachment!.view = this.depthView;
+
+      const splatPass = commandEncoder.beginRenderPass(this.splatPassDescriptor);
+      splatPass.setPipeline(this.pipelineManager.get<GPURenderPipeline>("render-splats"));
+      splatPass.setBindGroup(0, this.bindGroupManager.getGroup("camera"));
+      splatPass.setBindGroup(1, this.bindGroupManager.getGroup("splats"));
+      splatPass.draw(this.scene.splats.splatCount);
+      splatPass.end();
+    }
+    // End: Render splats
 
     // Begin: Render gizmo
     const { gmodel, gview, gprojection } = this.gizmo.getModelViewProjection(

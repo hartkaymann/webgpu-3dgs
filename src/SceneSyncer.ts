@@ -1,6 +1,5 @@
 import { BindGroupManager } from "./BindGroupsManager";
 import { BufferManager } from "./BufferManager";
-import { PipelineManager } from "./PipelineManager";
 import { Scene } from "./Scene";
 
 export class SceneSyncer {
@@ -18,9 +17,9 @@ export class SceneSyncer {
     this.bindGroupManager = bindGroupManager;
   }
 
-  async setPointData() {
-    this.bufferManager.resize("points", this.scene.splats.points.byteLength);
-    this.bufferManager.write("points", this.scene.splats.points);
+  async setSplatData() {
+    this.bufferManager.resize("positions", this.scene.splats.positions.byteLength);
+    this.bufferManager.write("positions", this.scene.splats.positions);
 
     this.bufferManager.resize("colors", this.scene.splats.colors.byteLength);
     this.bufferManager.write("colors", this.scene.splats.colors);

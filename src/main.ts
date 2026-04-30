@@ -46,9 +46,11 @@ async function main() {
         return; // TODO: Show fallback UI
     }
 
-    const device = deviceManager.getDevice();
-
-    const controller = new Controller(device)
+    const controller = new Controller({
+        device: deviceManager.getDevice(),
+        canvasContextName: deviceManager.getCanvasContextName(),
+        presentationFormat: deviceManager.getPresentationFormat()
+    });
     await controller.init();
     controller.start();
 
@@ -66,6 +68,8 @@ async function main() {
 
             controller.viewports.focusCameraOnScene(controller.scene);
             controller.setSplatData();
+
+            console.log('Splats loaded (', splats.splatCount, ')');
         },
     });
 
@@ -77,7 +81,7 @@ async function main() {
     }
     const url = new URL(`${import.meta.env.BASE_URL}model/${plyFiles[0]}`, location.origin).toString();
     console.log('First PLY file URL:', url);
-    sceneLoader.startLoadPoints(url);
+    sceneLoader.startLoadSplats(url);
 }
 
 window.addEventListener("DOMContentLoaded", () => {

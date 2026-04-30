@@ -1,23 +1,24 @@
 import { BindGroupManager } from "./BindGroupsManager";
 import { BufferManager } from "./BufferManager";
-import { Gizmo } from "./Gizmo";
-import { PipelineManager } from "./PipelineManager";
 import { Scene } from "./Scene";
 import { SceneSyncer } from "./SceneSyncer";
+import { WebGPUContext } from "./types/types";
 import { UIController } from "./ui/UIController";
 import { Viewport } from "./Viewport";
 
 export interface RenderPlan {
-    points: boolean;
+    grid: boolean;
+    splats: boolean;
     gizmo: boolean;
 }
 
 export interface RenderSettings {
-    points: boolean;
+    grid: boolean;
+    splats: boolean;
 }
 
 export class Controller {
-    device: GPUDevice;
+    private readonly gpu: WebGPUContext;
 
     scene: Scene;
     sync: SceneSyncer;
@@ -29,12 +30,13 @@ export class Controller {
     bufferManager: BufferManager;
     bindGroupsManager: BindGroupManager;
 
-    renderSettings: RenderSettings =  {
-        points: true,
+    renderSettings: RenderSettings = {
+        grid: true,
+        splats: true,
     };
 
     canRender = {
-        points: false,
+        splats: false,
         gizmo: true
     }
 
@@ -47,43 +49,20 @@ export class Controller {
     private animationFrameId: number | null = null;
     private running = false;
 
-    constructor(device: GPUDevice) {
-        this.device = device;
-        
-        this.bufferManager = new BufferManager(this.device);
-        this.bindGroupsManager = new BindGroupManager(this.device, this.bufferManager);
-        
+    constructor(gpu: WebGPUContext) {
+        this.gpu = gpu;
+
+        this.bufferManager = new BufferManager(this.gpu.device);
+        this.bindGroupsManager = new BindGroupManager(this.gpu.device, this.bufferManager);
+
         this.scene = new Scene();
-        this.sync = new SceneSyncer(this.scene, this.device, this.bufferManager, this.bindGroupsManager);
-        
-        this.viewports = new Viewport(this.device, this.scene, this.bufferManager, this.bindGroupsManager);
+        this.sync = new SceneSyncer(this.scene, this.gpu.device, this.bufferManager, this.bindGroupsManager);
+
+        this.viewports = new Viewport(this.gpu.device, this.scene, this.bufferManager, this.bindGroupsManager);
     }
 
-    async init() {
-        this.bufferManager.initBuffers([
-            {
-                name: "points",
-                size: 16,
-                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            },
-            {
-                name: "colors",
-                size: 16,
-                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            },
-        ]);
-
-        this.bindGroupsManager.createLayout({
-            name: "points",
-            entries: [
-                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-            ]
-        });
-
-        await this.viewports.init();
+    async init(): Promise<void> {
+        await this.viewports.init(this.gpu);
     }
 
     start() {
@@ -130,9 +109,9 @@ export class Controller {
         this.animationFrameId = requestAnimationFrame(this.render);
     };
 
-    async setSplatData() {
-        await this.sync.setPointData(); // TODO: rename
-        this.canRender.points = true;
+    async setSplatData(): Promise<void> {
+        await this.sync.setSplatData();
+        this.canRender.splats = true;
     }
 
     calculateFPS(currTime: number) {
@@ -155,18 +134,19 @@ export class Controller {
 
     private getRenderPlanFor(viewport: Viewport): RenderPlan {
         return {
-            points: this.canRender.points && this.renderSettings.points,
+            splats: this.canRender.splats && this.renderSettings.splats,
+            grid: this.renderSettings.grid,
             gizmo: this.canRender.gizmo,
         }
     }
 
-    reset() {
+    async reset(): Promise<void> {
         this.canRender = {
-            points: false,
+            splats: false,
             gizmo: true,
         }
 
-        this.viewports.init();
+        await this.viewports.init(this.gpu);
     }
 
 }

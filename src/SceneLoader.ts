@@ -34,7 +34,7 @@ export class SceneLoader {
         };
     }
 
-    startLoadPoints(url) {
+    startLoadSplats(url) {
         this.worker.postMessage({ type: "load-url", url });
     }
 

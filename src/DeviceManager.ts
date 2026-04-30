@@ -4,10 +4,15 @@ export class DeviceManager {
     private adapter!: GPUAdapter;
     private device!: GPUDevice;
 
+    private canvasContextName: "webgpu" = "webgpu";
+    private presentationFormat!: GPUTextureFormat;
+
     async init(): Promise<void> {
         if (!navigator.gpu) {
             throw new Error("WebGPU is not supported in this browser.");
         }
+
+        this.presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
         this.adapter = await navigator.gpu.requestAdapter();
         if (!this.adapter) {
@@ -46,7 +51,7 @@ export class DeviceManager {
             await this.init();
             console.log("WebGPU device restored.");
         } catch (e) {
-            let msg = "Failed to recover WebGPU device."; 
+            let msg = "Failed to recover WebGPU device.";
             console.error(msg);
             Utils.showToast(msg, 'error')
         }
@@ -61,5 +66,17 @@ export class DeviceManager {
 
     getAdapter(): GPUAdapter {
         return this.adapter;
+    }
+
+    getCanvasContextName(): "webgpu" {
+        return this.canvasContextName;
+    }
+
+    getPresentationFormat(): GPUTextureFormat {
+        if (!this.presentationFormat) {
+            throw new Error("DeviceManager: presentation format has not been initialized.");
+        }
+
+        return this.presentationFormat;
     }
 }

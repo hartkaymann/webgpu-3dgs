@@ -1,12 +1,18 @@
 import { vec3 } from "gl-matrix";
 
+export interface WebGPUContext {
+    device: GPUDevice;
+    canvasContextName: "webgpu";
+    presentationFormat: GPUTextureFormat;
+}
+
 export interface Bounds {
     min: { x: number; y: number; z: number };
     max: { x: number; y: number; z: number };
 }
 
 export interface GaussianSplatData {
-    points: Float32Array;
+    positions: Float32Array;
     colors: Float32Array;
     scales: Float32Array;
     rotations: Float32Array;
