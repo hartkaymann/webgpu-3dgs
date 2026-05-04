@@ -12,10 +12,11 @@ export class UIController {
     }
 
     async init() {
+        document.getElementById("raySampleInputs")?.addEventListener("change", this.handleUpdateTiles.bind(this));
         document.getElementById("renderGrid")?.addEventListener("change", this.handleRenderGridChanged.bind(this));
         document.getElementById("renderSplats")?.addEventListener("change", this.handleRenderSplatsChanged.bind(this));
 
-
+        this.handleUpdateTiles();
         this.handleRenderGridChanged();
         this.handleRenderSplatsChanged();
     }
@@ -30,6 +31,12 @@ export class UIController {
         const renderSplatsCheckbox = <HTMLInputElement>document.getElementById("renderSplats");
         const renderSplats = renderSplatsCheckbox.checked;
         this.controller.renderSettings.splats = renderSplats;
+    }
+
+    async handleUpdateTiles() {
+        const samplesX = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
+        const samplesY = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
+        this.controller.updateTiles([samplesX, samplesY]);
     }
 
 

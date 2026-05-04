@@ -1,3 +1,4 @@
+import { vec2 } from "gl-matrix";
 import { BindGroupManager } from "./BindGroupsManager";
 import { BufferManager } from "./BufferManager";
 import { Profiler } from "./Profiler";
@@ -16,6 +17,7 @@ export interface RenderPlan {
 export interface RenderSettings {
     grid: boolean;
     splats: boolean;
+    tiles: vec2;
 }
 
 export class Controller {
@@ -36,6 +38,7 @@ export class Controller {
     renderSettings: RenderSettings = {
         grid: true,
         splats: true,
+        tiles: [1, 1]
     };
 
     canRender = {
@@ -118,6 +121,19 @@ export class Controller {
     async setSplatData(): Promise<void> {
         await this.sync.setSplatData();
         this.canRender.splats = true;
+    }
+
+    updateTiles(tiles: [number, number] = [1, 1]) {
+        const [oldX, oldY] = this.scene.tiles;
+
+        this.scene.tiles = tiles;
+        this.sync.updateTiles(tiles);
+
+        if (oldX !== this.scene.tiles[0] || oldY !== this.scene.tiles[1]) {
+            // this.sync.updateTileRelatedBuffers();
+            // this.collisionSystem.updateRayWorkgroups();
+            // this.collisionSystem.updateRayPipelines();
+        }
     }
 
     calculateFPS(currTime: number) {

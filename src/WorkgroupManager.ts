@@ -91,3 +91,23 @@ export class WorkgroupManager {
         return { workgroupSize: [x, y, z], dispatchSize: dispatch };
     }
 }
+
+// Some basic strategies for common problem types:
+const highestPowerOfTwoAtMost = (value: number): number => {
+    return 2 ** Math.floor(Math.log2(Math.max(1, value)));
+};
+
+export const splat1D = (preferredSize = 256): WorkgroupStrategy =>
+    ({ limits }) => {
+        const maxAllowed = Math.min(
+            preferredSize,
+            limits.maxTotalThreads,
+            limits.maxSizeX
+        );
+
+        const x = highestPowerOfTwoAtMost(maxAllowed);
+
+        return {
+            workgroupSize: [x, 1, 1],
+        };
+    };

@@ -22,6 +22,9 @@ export class Camera {
     projectionMatrix: mat4;
     viewMatrix: mat4;
 
+    inverseProjectionMatrix: mat4;
+    inverseViewMatrix: mat4;
+
     constructor(position: vec3, target: vec3, up: vec3, fov: number, aspect: number, near: number, far: number) {
         this.position = vec3.clone(position);
         this.target = vec3.clone(target);
@@ -36,6 +39,9 @@ export class Camera {
 
         this.projectionMatrix = mat4.create();
         this.viewMatrix = mat4.create();
+
+        this.inverseProjectionMatrix = mat4.create();
+        this.inverseViewMatrix = mat4.create();
 
         this.forward = vec3.create();
         vec3.sub(this.forward, this.target, this.position);
@@ -57,10 +63,12 @@ export class Camera {
 
     updateView() {
         mat4.lookAt(this.viewMatrix, this.position, this.target, this.up);
+        mat4.invert(this.inverseViewMatrix, this.viewMatrix);
     }
 
     setProjection() {
         mat4.perspective(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+        mat4.invert(this.inverseProjectionMatrix, this.projectionMatrix);
     }
 
     setPosition(position: vec3) {
@@ -152,6 +160,27 @@ export class Camera {
         vec3.add(this.position, this.position, direction);
 
         this.updateView();
+    }
+
+    getUniformData(viewportWidth: number, viewportHeight: number): Float32Array {
+        const data = new Float32Array(72);
+
+        data.set(this.viewMatrix, 0);
+        data.set(this.projectionMatrix, 16);
+        data.set(this.inverseViewMatrix, 32);
+        data.set(this.inverseProjectionMatrix, 48);
+
+        data[64] = this.position[0];
+        data[65] = this.position[1];
+        data[66] = this.position[2];
+        data[67] = 1.0;
+
+        data[68] = viewportWidth;
+        data[69] = viewportHeight;
+        data[70] = viewportWidth / viewportHeight;
+        data[71] = 0.0;
+
+        return data;
     }
 
     private updateVectors() {

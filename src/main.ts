@@ -4,7 +4,6 @@ import SceneWorker from './workers/SceneWorker.ts?worker';
 import { Utils } from "./Utils";
 import { UIController } from "./ui/UIController";
 import { Controller } from "./Controller";
-import { WorkspaceManager } from "./ui/WorkspaceManager";
 import { SceneLoader } from "./SceneLoader";
 
 declare global {
@@ -54,14 +53,16 @@ async function main() {
     await controller.init();
     controller.start();
 
-    const workspaceManager = new WorkspaceManager(controller);
-    await workspaceManager.init();
-
     const uiController = new UIController(controller);
     await uiController.init();
     controller.ui = uiController;
 
     const sceneLoader = new SceneLoader(SceneWorker, {
+        onLoadStart: () => {
+            controller.scene.clear();
+            controller.reset();
+        },
+
         onSplatsLoaded: ({ splats, bounds }) => {
             controller.scene.splats = splats;
             controller.scene.bounds = bounds;
@@ -69,8 +70,21 @@ async function main() {
             controller.viewports.focusCameraOnScene(controller.scene);
             controller.setSplatData();
 
-            console.log('Splats loaded (', splats.splatCount, ')');
+            console.log("Splats loaded (", splats.splatCount, ")");
         },
+
+        onError: (error) => {
+            console.error("Failed to load scene:", error);
+        },
+    });
+
+    const input = document.getElementById("file-input") as HTMLInputElement;
+
+    input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+
+        await sceneLoader.loadFile(file);
     });
 
     const response = await fetch(`${import.meta.env.BASE_URL}model/files.json`);

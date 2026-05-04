@@ -1,8 +1,11 @@
 
 struct CameraUniforms {
-    viewMatrix: mat4x4f,
-    projectionMatrix: mat4x4f,
-    cameraPosition: vec4f,
+    view: mat4x4<f32>,
+    projection: mat4x4<f32>,
+    inverse_view: mat4x4<f32>,
+    inverse_projection: mat4x4<f32>,
+    position: vec4<f32>,
+    viewport: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -53,15 +56,15 @@ fn main(
 ) -> VertexOutput {
     var pos = positions[indices[vertex_index]] * gridSize;
 
-    pos.x += camera.cameraPosition.x;
-    pos.z += camera.cameraPosition.z;
+    pos.x += camera.position.x;
+    pos.z += camera.position.z;
 
     let worldPos = pos;
     let pos4 = vec4f(pos, 1.0);
 
     var out: VertexOutput;
     out.worldPos = pos;
-    out.position = camera.projectionMatrix * camera.viewMatrix * pos4;
+    out.position = camera.projection * camera.view * pos4;
 
     return out;
 }
@@ -133,7 +136,7 @@ fn main_fs(
         color.a *= lod0a;
     }
 
-    let fade = 1.0 - satf(distance(worldPos.xz, camera.cameraPosition.xz) / gridSize);
+    let fade = 1.0 - satf(distance(worldPos.xz, camera.position.xz) / gridSize);
     let opacityFalloff = pow(fade, 2.5);
     color.a *= opacityFalloff;
 
