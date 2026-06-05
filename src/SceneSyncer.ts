@@ -1,5 +1,6 @@
 import { BindGroupManager } from "./BindGroupsManager";
 import { BufferManager } from "./BufferManager";
+import { GaussianSplatRenderer } from "./renderers/GaussianSplatRenderer";
 import { Scene } from "./Scene";
 import { Config } from "./types/config";
 
@@ -34,9 +35,27 @@ export class SceneSyncer {
     this.resizeAndWrite("splat_scales", splats.scales);
     this.resizeAndWrite("splat_rotations", splats.rotations);
 
-    this.bufferManager.resize("projected_splats", splatCount * Config.PROJECTED_SPLAT_STRIDE);
-
+    this.resizeBinningBuffers(splatCount);
     this.updateTileRelatedBuffers();
+  }
+
+  // Resize every splat-count-dependent buffer; bind groups rebuild via the resize listener.
+  private resizeBinningBuffers(splatCount: number) {
+    const { maxRefs, radixGroupCount, scanGroupCount } =
+      GaussianSplatRenderer.binningSizesFor(splatCount);
+
+    this.bufferManager.resize("projected_splats", splatCount * Config.PROJECTED_SPLAT_STRIDE);
+    this.bufferManager.resize("splat_ref_counts", splatCount * 4);
+    this.bufferManager.resize("splat_ref_offsets", (splatCount + 1) * 4);
+    this.bufferManager.resize("block_sums", scanGroupCount * 4);
+
+    this.bufferManager.resize("sort_keys_a", maxRefs * 8);
+    this.bufferManager.resize("sort_keys_b", maxRefs * 8);
+    this.bufferManager.resize("sort_values_a", maxRefs * 4);
+    this.bufferManager.resize("sort_values_b", maxRefs * 4);
+
+    this.bufferManager.resize("radix_group_histograms", radixGroupCount * 16 * 4);
+    this.bufferManager.resize("radix_group_offsets", radixGroupCount * 16 * 4);
   }
 
   async updateTiles(tiles: [number, number] = [1, 1]) {
@@ -58,9 +77,7 @@ export class SceneSyncer {
     const tilesY = Math.max(1, Math.floor(this.scene.tiles[1]));
     const tileCount = Math.max(1, tilesX * tilesY);
 
-    this.bufferManager.resize("tile_counts", tileCount * 4);
     this.bufferManager.resize("tile_offsets", (tileCount + 1) * 4);
-    this.bufferManager.resize("tile_write_heads", tileCount * 4);
   }
 
   private resizeAndWrite(name: string, data: Float32Array | Uint32Array) {

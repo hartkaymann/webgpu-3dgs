@@ -84,7 +84,7 @@ export class Camera {
     }
 
     rotate(deltaX: number, deltaY: number) {
-        const pitchAngle = deltaX * this.rotationSpeed;
+        const pitchAngle = -deltaX * this.rotationSpeed;
         const yawAngle = -deltaY * this.rotationSpeed;
 
         const yawQuat = quat.create();

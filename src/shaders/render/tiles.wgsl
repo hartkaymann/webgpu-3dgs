@@ -1,23 +1,23 @@
 struct CameraUniforms {
-    view: mat4x4<f32>,
-    projection: mat4x4<f32>,
-    inverse_view: mat4x4<f32>,
+    view:               mat4x4<f32>,
+    projection:         mat4x4<f32>,
+    inverse_view:       mat4x4<f32>,
     inverse_projection: mat4x4<f32>,
-    position: vec4<f32>,
-    viewport: vec4<f32>,
+    position:           vec4<f32>,
+    viewport:           vec4<f32>,
 };
 
 struct TileRenderUniforms {
     tile_count: vec2<u32>,
-    _padding: vec2<u32>,
+    _padding:   vec2<u32>,
 };
 
 struct ProjectedSplat {
-    mean_px: vec2<f32>,
-    depth: f32,
+    mean_px:   vec2<f32>,
+    depth:     f32,
     radius_px: f32,
 
-    conic: vec3<f32>,
+    conic:   vec3<f32>,
     opacity: f32,
 
     color: vec3<f32>,
@@ -28,20 +28,21 @@ struct ProjectedSplat {
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
-@group(1) @binding(0) var<uniform> tile_uniforms: TileRenderUniforms;
+
+@group(1) @binding(0) var<uniform>      tile_uniforms:    TileRenderUniforms;
 @group(1) @binding(1) var<storage, read> projected_splats: array<ProjectedSplat>;
-@group(1) @binding(2) var<storage, read> tile_offsets: array<u32>;
-@group(1) @binding(3) var<storage, read> tile_splat_indices: array<u32>;
+@group(1) @binding(2) var<storage, read> tile_offsets:     array<u32>;
+@group(1) @binding(3) var<storage, read> tile_splat_ids:   array<u32>; // sorted sort_values
 
 struct VertexInput {
-    @location(0) local_uv: vec2<f32>,
-    @builtin(instance_index) instance_id: u32,
+    @location(0)               local_uv:    vec2<f32>,
+    @builtin(instance_index)   instance_id: u32,
 };
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) ndc: vec2<f32>,
-    @location(1) @interpolate(flat) tile_id: u32,
+    @builtin(position)               position:  vec4<f32>,
+    @location(0)                     ndc:       vec2<f32>,
+    @location(1) @interpolate(flat)  tile_id:   u32,
 };
 
 @vertex
@@ -52,22 +53,16 @@ fn main(input: VertexInput) -> VertexOutput {
     let tile_x = input.instance_id % tiles_x;
     let tile_y = input.instance_id / tiles_x;
 
-    let tile_count_f = vec2<f32>(f32(tiles_x), f32(tiles_y));
-    let tile_id_f = vec2<f32>(f32(tile_x), f32(tile_y));
+    let screen_uv = (vec2<f32>(f32(tile_x), f32(tile_y)) + input.local_uv)
+                  / vec2<f32>(f32(tiles_x), f32(tiles_y));
 
-    let screen_uv = (tile_id_f + input.local_uv) / tile_count_f;
+    let ndc = vec2<f32>(screen_uv.x * 2.0 - 1.0, 1.0 - screen_uv.y * 2.0);
 
-    let ndc = vec2<f32>(
-        screen_uv.x * 2.0 - 1.0,
-        1.0 - screen_uv.y * 2.0
-    );
-
-    var output: VertexOutput;
-    output.position = vec4<f32>(ndc, 0.0, 1.0);
-    output.ndc = ndc;
-    output.tile_id = tile_y * tiles_x + tile_x;
-
-    return output;
+    var out: VertexOutput;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.ndc      = ndc;
+    out.tile_id  = tile_y * tiles_x + tile_x;
+    return out;
 }
 
 @fragment
@@ -75,58 +70,44 @@ fn main_fs(input: VertexOutput) -> @location(0) vec4<f32> {
     let pixel = input.position.xy;
 
     let start = tile_offsets[input.tile_id];
-    let end = tile_offsets[input.tile_id + 1u];
+    let end   = tile_offsets[input.tile_id + 1u];
 
-    var found = false;
-    var best_depth = 1e30;
-    var best_color = vec3<f32>(0.0);
+    // Front-to-back compositing: the depth key sorts each tile's splats near → far,
+    // so we accumulate weighted by the remaining transmittance and can stop early.
+    var color = vec3<f32>(0.0);
+    var transmittance = 1.0;
 
     for (var i = start; i < end; i = i + 1u) {
-        let splat_id = tile_splat_indices[i];
-        let splat = projected_splats[splat_id];
+        let splat_id = tile_splat_ids[i];
+        let splat    = projected_splats[splat_id];
 
-        if (splat.valid == 0u) {
-            continue;
-        }
+        if (splat.valid == 0u) { continue; }
 
         let d = pixel - splat.mean_px;
 
-        // Cheap circular support test.
-        if (dot(d, d) > splat.radius_px * splat.radius_px) {
-            continue;
-        }
+        // Fast circular cull before evaluating the full Gaussian.
+        if (dot(d, d) > splat.radius_px * splat.radius_px) { continue; }
 
-        // Elliptical Gaussian evaluation.
+        // Elliptical Gaussian: exp(-0.5 * d^T conic d)
         let power = -0.5 * (
             splat.conic.x * d.x * d.x +
             2.0 * splat.conic.y * d.x * d.y +
             splat.conic.z * d.y * d.y
         );
+        if (power > 0.0) { continue; } // invalid conic
 
-        // If power is positive, the conic is probably invalid.
-        if (power > 0.0) {
-            continue;
-        }
+        let alpha = min(0.99, splat.opacity * exp(power));
+        if (alpha < 1.0 / 255.0) { continue; }
 
-        let weight = exp(power);
-        let alpha = splat.opacity * weight;
+        color += transmittance * alpha * splat.color;
+        transmittance *= 1.0 - alpha;
 
-        // Ignore very weak contribution.
-        if (alpha < 1.0 / 255.0) {
-            continue;
-        }
-
-        // Pick nearest contributing splat.
-        if (!found || splat.depth < best_depth) {
-            found = true;
-            best_depth = splat.depth;
-            best_color = splat.color;
-        }
+        // Stop once the remaining splats can no longer contribute.
+        if (transmittance < 1.0e-4) { break; }
     }
 
-    if (!found) {
-        discard;
-    }
+    let alpha_out = 1.0 - transmittance;
+    if (alpha_out < 1.0 / 255.0) { discard; }
 
-    return vec4<f32>(best_color, 1.0);
+    return vec4<f32>(color, alpha_out);
 }

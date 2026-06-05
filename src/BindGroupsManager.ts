@@ -20,6 +20,7 @@ export class BindGroupManager {
     private layouts: Map<string, GPUBindGroupLayout> = new Map();
     private groups: Map<string, GPUBindGroup> = new Map();
     private groupEntries: Map<string, GPUBindGroupEntry[]> = new Map();
+    private groupLayoutNames: Map<string, string> = new Map();
     private bufferToGroups: Map<string, Set<string>> = new Map();
 
     constructor(device: GPUDevice, bufferManager: BufferManager) {
@@ -51,6 +52,7 @@ export class BindGroupManager {
         });
         this.groups.set(config.name, group);
         this.groupEntries.set(config.name, config.entries);
+        this.groupLayoutNames.set(config.name, config.layoutName);
 
         return group;
     }
@@ -59,8 +61,9 @@ export class BindGroupManager {
         const group = this.groups.get(name);
         if (!group) throw new Error(`BindGroup '${name}' not found`);
 
-        const layout = this.layouts.get(name);
-        if (!layout) throw new Error(`BindGroupLayout '${name}' not found`);
+        const layoutName = this.groupLayoutNames.get(name) ?? name;
+        const layout = this.layouts.get(layoutName);
+        if (!layout) throw new Error(`BindGroupLayout '${layoutName}' not found`);
 
         const entries = this.groupEntries.get(name) || [];
 
@@ -129,5 +132,6 @@ export class BindGroupManager {
         this.layouts.clear();
         this.groups.clear();
         this.groupEntries.clear();
+        this.groupLayoutNames.clear();
     }
 }
