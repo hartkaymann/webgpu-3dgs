@@ -1,12 +1,7 @@
 import { BufferManager } from "./BufferManager";
 
-type GPUTimerEntry = {
-    label: string;
-    querySet: GPUQuerySet;
-    resolveBuffer: GPUBuffer;
-    resultBuffer: GPUBuffer;
-    inUse: boolean;
-};
+type TimingSortKey = "order" | "time";
+type TimingSortDir = "asc" | "desc";
 
 export class Profiler {
 
@@ -14,8 +9,41 @@ export class Profiler {
     bufferManager: BufferManager | null = null;
 
     private canTimestamp: boolean;
-    private timers: Map<string, GPUTimerEntry> = new Map();
+
+    // ── GPU timestamp timing ────────────────────────────────────────────────
+    // One shared query set holds up to QUERY_CAPACITY (begin, end) pairs per
+    // frame. Each profiled compute pass claims the next free pair; the same
+    // label may be claimed multiple times per frame (e.g. the radix passes) and
+    // its deltas are summed into a single entry.
+    private static readonly QUERY_CAPACITY = 128; // pairs -> 256 timestamps
+
+    private querySet: GPUQuerySet | null = null;
+    private resolveBuffer: GPUBuffer | null = null;
+    private resultBuffer: GPUBuffer | null = null;
+
+    // Labels claimed this frame, in encode order (index === query pair).
+    private frameLabels: string[] = [];
+    // Snapshot of the labels copied into resultBuffer, awaiting map/readback.
+    private pendingLabels: string[] = [];
+
+    // Accumulation window: summed time + sample count per label since last flush.
+    private accSum: Map<string, number> = new Map();
+    private accCount: Map<string, number> = new Map();
+    // Execution order (encode order) of the most recent sampled frame.
+    private lastFrameOrder: string[] = [];
+
+    // Averaged timings (µs) shown in the panel, plus the order used to display.
     private timings: Map<string, number> = new Map();
+    private executionOrder: string[] = [];
+
+    // Flush averaged timings to the panel at most once per interval.
+    private flushIntervalMs = 1000;
+    private lastFlush = 0;
+
+    // Panel sort state.
+    private sortKey: TimingSortKey = "order";
+    private sortDir: TimingSortDir = "asc";
+    private timingControlsInit = false;
 
     gpuMemoryMax: number = 0;
     gpuMemoryUsage: number = 0;
@@ -24,6 +52,14 @@ export class Profiler {
         this.device = device;
         this.gpuMemoryMax = device.limits.maxStorageBufferBindingSize;
         this.canTimestamp = device.features.has("timestamp-query");
+
+        if (this.canTimestamp) {
+            this.querySet = this.device.createQuerySet({
+                label: "profiler-timestamps",
+                type: "timestamp",
+                count: Profiler.QUERY_CAPACITY * 2,
+            });
+        }
     }
 
     // Profile CPU
@@ -51,6 +87,20 @@ export class Profiler {
         manager.onResize((name, newSize) => {
             this.updateBufferSizePanel();
         });
+
+        if (this.canTimestamp) {
+            const byteSize = Profiler.QUERY_CAPACITY * 2 * 8; // 2 timestamps per pair, 8 bytes each
+            this.resolveBuffer = manager.createBuffer(
+                "profiler_timestamp_resolve",
+                byteSize,
+                GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+            );
+            this.resultBuffer = manager.createBuffer(
+                "profiler_timestamp_result",
+                byteSize,
+                GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+            );
+        }
     }
 
     getTotalBufferSize(): number {
@@ -74,88 +124,130 @@ export class Profiler {
         return sorted;
     }
 
-    registerTimer(label: string) {
-        if (!this.canTimestamp) return;
-
-        const querySet = this.device.createQuerySet({
-            type: "timestamp",
-            count: 2,
-        });
-
-        const resolveBuffer = this.device.createBuffer({
-            label: `${label}-resolve`,
-            size: 16,
-            usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-        });
-
-        const resultBuffer = this.device.createBuffer({
-            label: `${label}-result`,
-            size: 16,
-            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-        });
-
-        this.timers.set(label, {
-            label,
-            querySet,
-            resolveBuffer,
-            resultBuffer,
-            inUse: false,
-        });
+    // Reset the per-frame query allocation. Call once before recording passes.
+    beginFrame(): void {
+        this.frameLabels.length = 0;
     }
 
+    // Begin a compute pass that is timed via the shared query set. Falls back to
+    // an untimed pass when timestamps are unavailable or the per-frame query
+    // capacity is exhausted.
     beginComputePass(label: string, encoder: GPUCommandEncoder): GPUComputePassEncoder {
-        const timer = this.timers.get(label);
-        if (!timer || !this.canTimestamp) {
-            return encoder.beginComputePass();
+        if (!this.canTimestamp || !this.querySet || this.frameLabels.length >= Profiler.QUERY_CAPACITY) {
+            return encoder.beginComputePass({ label });
         }
 
-        timer.inUse = true;
+        const pair = this.frameLabels.length;
+        this.frameLabels.push(label);
 
         return encoder.beginComputePass({
+            label,
             timestampWrites: {
-                querySet: timer.querySet,
-                beginningOfPassWriteIndex: 0,
-                endOfPassWriteIndex: 1,
+                querySet: this.querySet,
+                beginningOfPassWriteIndex: pair * 2,
+                endOfPassWriteIndex: pair * 2 + 1,
             },
         });
     }
 
-    async endComputePass(label: string, encoder: GPUCommandEncoder): Promise<number | null> {
-        const timer = this.timers.get(label);
-        if (!timer || !this.canTimestamp || !timer.inUse) {
-            this.device.queue.submit([encoder.finish()]);
-            return null;
+    // Begin a render pass timed via the shared query set. The timestamp covers
+    // the whole pass (vertex + fragment combined); WebGPU cannot separate the
+    // two stages. Falls back to an untimed pass when unavailable or at capacity.
+    beginRenderPass(label: string, encoder: GPUCommandEncoder, descriptor: GPURenderPassDescriptor): GPURenderPassEncoder {
+        if (!this.canTimestamp || !this.querySet || this.frameLabels.length >= Profiler.QUERY_CAPACITY) {
+            return encoder.beginRenderPass(descriptor);
         }
 
-        const { querySet, resolveBuffer, resultBuffer } = timer;
+        const pair = this.frameLabels.length;
+        this.frameLabels.push(label);
 
-        encoder.resolveQuerySet(querySet, 0, 2, resolveBuffer, 0);
-        encoder.copyBufferToBuffer(resolveBuffer, 0, resultBuffer, 0, 16);
+        return encoder.beginRenderPass({
+            ...descriptor,
+            timestampWrites: {
+                querySet: this.querySet,
+                beginningOfPassWriteIndex: pair * 2,
+                endOfPassWriteIndex: pair * 2 + 1,
+            },
+        });
+    }
 
-        this.device.queue.submit([encoder.finish()]);
-        await this.device.queue.onSubmittedWorkDone();
+    // Resolve this frame's timestamps into the result buffer. Must run on the
+    // same encoder, before it is finished/submitted. Skipped if the result
+    // buffer is still mapped from a previous in-flight readback.
+    endFrame(encoder: GPUCommandEncoder): void {
+        if (!this.canTimestamp || !this.querySet || !this.resolveBuffer || !this.resultBuffer) return;
 
-        try {
-            if (resultBuffer.mapState === "unmapped") {
-                await resultBuffer.mapAsync(GPUMapMode.READ);
-                const timesView = new BigUint64Array(resultBuffer.getMappedRange());
-                const times = timesView.slice();
+        const pairs = this.frameLabels.length;
+        if (pairs === 0) return;
+        if (this.resultBuffer.mapState !== "unmapped") {
+            // Previous readback still in flight; sample a later frame instead.
+            this.pendingLabels.length = 0;
+            return;
+        }
 
-                resultBuffer.unmap();
+        encoder.resolveQuerySet(this.querySet, 0, pairs * 2, this.resolveBuffer, 0);
+        encoder.copyBufferToBuffer(this.resolveBuffer, 0, this.resultBuffer, 0, pairs * 2 * 8);
 
-                const deltaUs = Number(times[1] - times[0]) / 1000;
-                timer.inUse = false;
-                this.timings.set(label, deltaUs);
-                this.updateShaderTimingPanel();
+        this.pendingLabels = this.frameLabels.slice(0, pairs);
+    }
 
-                return deltaUs;
+    // Map the resolved timestamps and accumulate them. Call after the encoder
+    // has been submitted. The async map resolves a frame or two later; results
+    // feed the averaging window and a periodic panel flush.
+    readback(): void {
+        const resultBuffer = this.resultBuffer;
+        if (!this.canTimestamp || !resultBuffer || this.pendingLabels.length === 0) return;
+        if (resultBuffer.mapState !== "unmapped") return;
+
+        const labels = this.pendingLabels;
+        this.pendingLabels = [];
+
+        resultBuffer.mapAsync(GPUMapMode.READ).then(() => {
+            const view = new BigUint64Array(resultBuffer.getMappedRange());
+
+            // Sum repeated labels (e.g. radix passes) within this frame.
+            const frameSums = new Map<string, number>();
+            for (let i = 0; i < labels.length; i++) {
+                const deltaUs = Number(view[i * 2 + 1] - view[i * 2]) / 1000;
+                if (deltaUs < 0 || !Number.isFinite(deltaUs)) continue;
+                frameSums.set(labels[i], (frameSums.get(labels[i]) ?? 0) + deltaUs);
             }
-        } catch (err) {
-            console.error(`Profiler "${label}" failed to map result buffer:`, err);
-        }
 
-        timer.inUse = false;
-        return null;
+            resultBuffer.unmap();
+
+            this.lastFrameOrder = [...frameSums.keys()];
+            for (const [label, sum] of frameSums) {
+                this.accSum.set(label, (this.accSum.get(label) ?? 0) + sum);
+                this.accCount.set(label, (this.accCount.get(label) ?? 0) + 1);
+            }
+
+            this.maybeFlushTimings();
+        }).catch(err => {
+            console.error("Profiler failed to read timestamp results:", err);
+        });
+    }
+
+    // Average and publish the accumulated timings once per flush interval.
+    private maybeFlushTimings(): void {
+        const now = performance.now();
+        if (this.lastFlush === 0) {
+            this.lastFlush = now;
+            return;
+        }
+        if (now - this.lastFlush < this.flushIntervalMs) return;
+        this.lastFlush = now;
+
+        this.timings.clear();
+        for (const [label, sum] of this.accSum) {
+            const count = this.accCount.get(label) ?? 1;
+            this.timings.set(label, sum / count);
+        }
+        this.executionOrder = [...this.lastFrameOrder];
+
+        this.accSum.clear();
+        this.accCount.clear();
+
+        this.updateShaderTimingPanel();
     }
 
     private formatBufferSize(bytes: number): string {
@@ -199,18 +291,69 @@ export class Profiler {
     }
 
     updateShaderTimingPanel() {
-        const tableBody = document.querySelector("#gpu-timer-table tbody")!;
-        const rows = [...this.timings.entries()]
-            .sort((a, b) => b[1] - a[1]) // largest time first
-            .map(([label, time]) => {
-                return `<tr>
+        const tableBody = document.querySelector("#gpu-timer-table tbody");
+        if (!tableBody) return;
+
+        this.initTimingPanelControls();
+
+        const entries = [...this.timings.entries()];
+        if (this.sortKey === "time") {
+            entries.sort((a, b) => this.sortDir === "desc" ? b[1] - a[1] : a[1] - b[1]);
+        } else {
+            // Execution order: index of first appearance in the sampled frame.
+            const orderIndex = new Map(this.executionOrder.map((label, i) => [label, i]));
+            entries.sort((a, b) =>
+                (orderIndex.get(a[0]) ?? Number.MAX_SAFE_INTEGER) -
+                (orderIndex.get(b[0]) ?? Number.MAX_SAFE_INTEGER));
+            if (this.sortDir === "desc") entries.reverse();
+        }
+
+        tableBody.innerHTML = entries
+            .map(([label, time]) => `<tr>
                     <td>${label}</td>
                     <td style="text-align: right;">${time.toFixed(2)}</td>
-                </tr>`;
-            })
+                </tr>`)
             .join("");
 
-        tableBody.innerHTML = rows;
+        this.updateTimingSortIndicators();
     }
 
-} 
+    // Wire the header cells once so clicking toggles the sort. "Shader" sorts by
+    // execution order, "Time" by elapsed time; clicking the active column again
+    // reverses its direction.
+    private initTimingPanelControls() {
+        if (this.timingControlsInit) return;
+
+        const shaderTh = document.getElementById("gpu-timer-th-shader");
+        const timeTh = document.getElementById("gpu-timer-th-time");
+        if (!shaderTh || !timeTh) return;
+
+        const applySort = (key: TimingSortKey, defaultDir: TimingSortDir) => {
+            if (this.sortKey === key) {
+                this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
+            } else {
+                this.sortKey = key;
+                this.sortDir = defaultDir;
+            }
+            this.updateShaderTimingPanel();
+        };
+
+        shaderTh.style.cursor = "pointer";
+        timeTh.style.cursor = "pointer";
+        shaderTh.title = "Sort by execution order (click again to reverse)";
+        timeTh.title = "Sort by time, descending (click again to reverse)";
+        shaderTh.onclick = () => applySort("order", "asc");
+        timeTh.onclick = () => applySort("time", "desc");
+
+        this.timingControlsInit = true;
+    }
+
+    private updateTimingSortIndicators() {
+        const arrow = this.sortDir === "asc" ? " ▲" : " ▼";
+        const shaderArrow = document.getElementById("gpu-timer-arrow-shader");
+        const timeArrow = document.getElementById("gpu-timer-arrow-time");
+        if (shaderArrow) shaderArrow.textContent = this.sortKey === "order" ? arrow : "";
+        if (timeArrow) timeArrow.textContent = this.sortKey === "time" ? arrow : "";
+    }
+
+}

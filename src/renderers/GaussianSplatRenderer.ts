@@ -12,6 +12,7 @@ import radix_scatter_src from "../shaders/compute/radix_scatter.wgsl";
 import { BindGroupManager } from "../BindGroupsManager";
 import { BufferManager } from "../BufferManager";
 import { PipelineManager } from "../PipelineManager";
+import { Profiler } from "../Profiler";
 import { Scene } from "../Scene";
 import { IRenderer, RenderFrameInfo } from "./IRenderer";
 import { Config } from "../types/config";
@@ -24,6 +25,7 @@ export class GaussianSplatRenderer implements IRenderer {
     private bindGroupManager: BindGroupManager;
     private pipelineManager: PipelineManager;
     private workgroups: WorkgroupManager;
+    private profiler: Profiler;
 
     private tileVertices = new Float32Array([
         0, 0, 1, 0, 1, 1,
@@ -41,15 +43,6 @@ export class GaussianSplatRenderer implements IRenderer {
     private identifyTileRangesPipeline: GPUComputePipeline | null = null;
     private tilePipeline: GPURenderPipeline | null = null;
 
-    private preprocessPassDescriptor: GPUComputePassDescriptor         = { label: "pass-splat-preprocess" };
-    private prefixScanLocalPassDescriptor: GPUComputePassDescriptor   = { label: "pass-prefix-scan-local" };
-    private prefixScanBlocksPassDescriptor: GPUComputePassDescriptor  = { label: "pass-prefix-scan-blocks" };
-    private prefixScanAddPassDescriptor: GPUComputePassDescriptor     = { label: "pass-prefix-scan-add" };
-    private emitRefsPassDescriptor: GPUComputePassDescriptor          = { label: "pass-emit-tile-refs" };
-    private radixHistogramPassDescriptor: GPUComputePassDescriptor = { label: "pass-radix-histogram" };
-    private radixHistogramScanPassDescriptor: GPUComputePassDescriptor = { label: "pass-radix-histogram-scan" };
-    private radixScatterPassDescriptor: GPUComputePassDescriptor = { label: "pass-radix-scatter" };
-    private identifyTileRangesPassDescriptor: GPUComputePassDescriptor = { label: "pass-identify-tile-ranges" };
     private tilePassDescriptor: GPURenderPassDescriptor | null = null;
 
     private maxRefs = 1;
@@ -73,11 +66,13 @@ export class GaussianSplatRenderer implements IRenderer {
         scene: Scene,
         bufferManager: BufferManager,
         bindGroupManager: BindGroupManager,
+        profiler: Profiler,
     ) {
         this.device = device;
         this.scene = scene;
         this.bufferManager = bufferManager;
         this.bindGroupManager = bindGroupManager;
+        this.profiler = profiler;
 
         this.pipelineManager = new PipelineManager(this.device);
         this.workgroups = new WorkgroupManager(this.device);
@@ -774,7 +769,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // Stage 1: project splats -> projected_splats + splat_ref_counts
         {
-            const pass = commandEncoder.beginComputePass(this.preprocessPassDescriptor);
+            const pass = this.profiler.beginComputePass("preprocess-splats", commandEncoder);
             pass.setPipeline(this.preprocessPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("camera"));
             pass.setBindGroup(1, this.bindGroupManager.getGroup("splat_input"));
@@ -787,7 +782,7 @@ export class GaussianSplatRenderer implements IRenderer {
         // 2A: local scan - each of scanGroupCount workgroups Blelloch-scans its chunk,
         //     writes partial prefix sums to splat_ref_offsets and chunk totals to block_sums.
         {
-            const pass = commandEncoder.beginComputePass(this.prefixScanLocalPassDescriptor);
+            const pass = this.profiler.beginComputePass("prefix-scan-local", commandEncoder);
             pass.setPipeline(this.prefixScanLocalPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_local"));
             pass.dispatchWorkgroups(this.scanGroupCount);
@@ -796,7 +791,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // 2B: block scan - single thread scans block_sums in-place, writes ref_counter + sentinel.
         {
-            const pass = commandEncoder.beginComputePass(this.prefixScanBlocksPassDescriptor);
+            const pass = this.profiler.beginComputePass("prefix-scan-blocks", commandEncoder);
             pass.setPipeline(this.prefixScanBlocksPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_blocks"));
             pass.dispatchWorkgroups(1);
@@ -805,7 +800,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // 2C: add block offsets - each workgroup adds its chunk's global offset to its local sums.
         {
-            const pass = commandEncoder.beginComputePass(this.prefixScanAddPassDescriptor);
+            const pass = this.profiler.beginComputePass("prefix-scan-add", commandEncoder);
             pass.setPipeline(this.prefixScanAddPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_add"));
             pass.dispatchWorkgroups(this.scanGroupCount);
@@ -814,7 +809,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // Stage 3: emit one (key, value) pair per (splat, tile) ref -> sort_keys_a / sort_values_a
         {
-            const pass = commandEncoder.beginComputePass(this.emitRefsPassDescriptor);
+            const pass = this.profiler.beginComputePass("emit-tile-refs", commandEncoder);
             pass.setPipeline(this.emitRefsPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("camera"));
             pass.setBindGroup(1, this.bindGroupManager.getGroup("splat_ref_emit"));
@@ -849,7 +844,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
             // 4A: histogram - count digits per workgroup
             {
-                const pass = commandEncoder.beginComputePass(this.radixHistogramPassDescriptor);
+                const pass = this.profiler.beginComputePass("radix-histogram", commandEncoder);
                 pass.setPipeline(this.radixHistogramPipeline);
                 pass.setBindGroup(0, histogramBg, [slotOffset]);
                 pass.dispatchWorkgroups(rgc);
@@ -858,7 +853,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
             // 4B: scan histograms -> per-workgroup write offsets + global bucket offsets
             {
-                const pass = commandEncoder.beginComputePass(this.radixHistogramScanPassDescriptor);
+                const pass = this.profiler.beginComputePass("radix-histogram-scan", commandEncoder);
                 pass.setPipeline(this.radixHistogramScanPipeline);
                 pass.setBindGroup(0, this.bindGroupManager.getGroup("radix_histogram_scan"), [slotOffset]);
                 pass.dispatchWorkgroups(1);
@@ -867,7 +862,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
             // 4C: scatter - place each element at its final sorted position
             {
-                const pass = commandEncoder.beginComputePass(this.radixScatterPassDescriptor);
+                const pass = this.profiler.beginComputePass("radix-scatter", commandEncoder);
                 pass.setPipeline(this.radixScatterPipeline);
                 pass.setBindGroup(0, scatterBg, [slotOffset]);
                 pass.dispatchWorkgroups(rgc);
@@ -877,7 +872,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // Stage 5: walk sorted sort_keys_a -> tile_offsets
         {
-            const pass = commandEncoder.beginComputePass(this.identifyTileRangesPassDescriptor);
+            const pass = this.profiler.beginComputePass("identify-tile-ranges", commandEncoder);
             pass.setPipeline(this.identifyTileRangesPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("tile_range_identification"));
             pass.dispatchWorkgroups(this.radixGroupCount);
@@ -888,7 +883,7 @@ export class GaussianSplatRenderer implements IRenderer {
         this.tilePassDescriptor.colorAttachments[0].view = frame.colorView;
         this.tilePassDescriptor.depthStencilAttachment.view = frame.depthView;
 
-        const tilePass = commandEncoder.beginRenderPass(this.tilePassDescriptor);
+        const tilePass = this.profiler.beginRenderPass("render-gaussian-tiles", commandEncoder, this.tilePassDescriptor);
         tilePass.setPipeline(this.tilePipeline);
         tilePass.setBindGroup(0, this.bindGroupManager.getGroup("camera"));
         tilePass.setBindGroup(1, this.bindGroupManager.getGroup("tile_render"));

@@ -217,8 +217,8 @@ button:disabled {
 }
 
 #profiler-panel {
-  min-height: 300px;
-  max-height: 300px;
+  min-height: 400px;
+  max-height: 500px;
   overflow: hidden;
   padding: 1em;
   color: #eee;

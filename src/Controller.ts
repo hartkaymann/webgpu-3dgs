@@ -67,7 +67,7 @@ export class Controller {
         this.scene = new Scene();
         this.sync = new SceneSyncer(this.scene, this.gpu.device, this.bufferManager, this.bindGroupsManager);
 
-        this.viewports = new Viewport(this.gpu.device, this.scene, this.bufferManager, this.bindGroupsManager);
+        this.viewports = new Viewport(this.gpu.device, this.scene, this.bufferManager, this.bindGroupsManager, this.profiler);
     }
 
     async init(): Promise<void> {

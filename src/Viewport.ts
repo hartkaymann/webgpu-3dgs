@@ -12,6 +12,7 @@ import { GaussianSplatRenderer } from "./renderers/GaussianSplatRenderer";
 import { GizmoRenderer } from "./renderers/GizmoRenderer";
 import { GridRenderer } from "./renderers/GridRenderer";
 import { RenderFrameInfo } from "./renderers/IRenderer";
+import { Profiler } from "./Profiler";
 import { WebGPUContext } from "./types/types";
 
 
@@ -31,6 +32,7 @@ export class Viewport {
 
   camera: Camera;
   input: InputHandler;
+  profiler: Profiler;
 
   // Device/Context objects
   clearPassDescriptor: GPURenderPassDescriptor;
@@ -42,11 +44,12 @@ export class Viewport {
   depthTexture: GPUTexture;
   depthView: GPUTextureView;
 
-  constructor(device: GPUDevice, scene: Scene, buffers: BufferManager, bind: BindGroupManager) {
+  constructor(device: GPUDevice, scene: Scene, buffers: BufferManager, bind: BindGroupManager, profiler: Profiler) {
     this.device = device;
     this.scene = scene;
     this.bufferManager = buffers;
     this.bindGroupManager = bind;
+    this.profiler = profiler;
 
     this.pipelineManager = new PipelineManager(this.device);
 
@@ -92,7 +95,8 @@ export class Viewport {
       this.device,
       this.scene,
       this.bufferManager,
-      this.bindGroupManager
+      this.bindGroupManager,
+      this.profiler
     );
 
     this.gizmoRenderer = new GizmoRenderer(
@@ -178,6 +182,8 @@ export class Viewport {
   runRenderPass(plan: RenderPlan) {
     this.bufferManager.write("camera_uniforms", this.camera.getUniformData(this.canvas.width, this.canvas.height), 0);
 
+    this.profiler.beginFrame();
+
     const commandEncoder: GPUCommandEncoder = this.device.createCommandEncoder();
     const swapchainTexture = this.context.getCurrentTexture();
     const swapchainView = swapchainTexture.createView();
@@ -209,8 +215,14 @@ export class Viewport {
       this.gizmoRenderer.render(commandEncoder, frame);
     }
 
+    // Resolve timestamp queries onto this encoder before finishing it.
+    this.profiler.endFrame(commandEncoder);
+
     // Submit everything
     this.device.queue.submit([commandEncoder.finish()]);
+
+    // Map the resolved timestamps now that the work is queued.
+    this.profiler.readback();
   }
 
 
