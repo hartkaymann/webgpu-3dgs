@@ -1,24 +1,42 @@
 import { Controller } from "../Controller";
 import { Viewport } from "../Viewport";
+import { TileDebugOverlay } from "./TileDebugOverlay";
 
 export class UIController {
 
     controller: Controller;
     viewport: Viewport;
+    tileOverlay: TileDebugOverlay;
 
     constructor(controller: Controller) {
         this.controller = controller;
         this.viewport = controller.viewports;
+        this.tileOverlay = new TileDebugOverlay(this.viewport.canvas, this.viewport.splatRenderer);
     }
 
     async init() {
-        document.getElementById("raySampleInputs")?.addEventListener("change", this.handleUpdateTiles.bind(this));
+        document.getElementById("tileSizeInputs")?.addEventListener("change", this.handleTileSizeChanged.bind(this));
         document.getElementById("renderGrid")?.addEventListener("change", this.handleRenderGridChanged.bind(this));
         document.getElementById("renderSplats")?.addEventListener("change", this.handleRenderSplatsChanged.bind(this));
+        document.getElementById("splatDrawMode")?.addEventListener("change", this.handleSplatDrawModeChanged.bind(this));
+        document.getElementById("rebinEveryFrame")?.addEventListener("change", this.handleRebinEveryFrameChanged.bind(this));
 
-        this.handleUpdateTiles();
+        this.handleTileSizeChanged();
         this.handleRenderGridChanged();
         this.handleRenderSplatsChanged();
+        this.handleSplatDrawModeChanged();
+        this.handleRebinEveryFrameChanged();
+    }
+
+    handleRebinEveryFrameChanged() {
+        const checkbox = <HTMLInputElement>document.getElementById("rebinEveryFrame");
+        this.controller.setRebinEveryFrame(checkbox.checked);
+    }
+
+    handleSplatDrawModeChanged() {
+        const mode = parseInt((<HTMLSelectElement>document.getElementById("splatDrawMode")).value);
+        this.controller.setSplatDrawMode(mode);
+        this.tileOverlay.setActive(mode === 1);
     }
 
     handleRenderGridChanged() {
@@ -33,10 +51,15 @@ export class UIController {
         this.controller.renderSettings.splats = renderSplats;
     }
 
-    async handleUpdateTiles() {
-        const samplesX = parseInt((<HTMLInputElement>document.getElementById("samplesX")).value);
-        const samplesY = parseInt((<HTMLInputElement>document.getElementById("samplesY")).value);
-        this.controller.updateTiles([samplesX, samplesY]);
+    handleTileSizeChanged() {
+        const inputX = <HTMLInputElement>document.getElementById("tileSizeX");
+        const inputY = <HTMLInputElement>document.getElementById("tileSizeY");
+
+        // The renderer clamps the tile size to the device workgroup limits; reflect
+        // the clamped value back into the inputs so the UI matches what's actually used.
+        const [tx, ty] = this.controller.setTileSize([parseInt(inputX.value), parseInt(inputY.value)]);
+        inputX.value = String(tx);
+        inputY.value = String(ty);
     }
 
 

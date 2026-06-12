@@ -15,7 +15,7 @@ struct SplatBinningUniforms {
     _padding2:        vec2<u32>,
 };
 
-@group(0) @binding(0) var<uniform>             uniforms:          SplatBinningUniforms;
+@group(0) @binding(0) var<uniform>              uniforms:          SplatBinningUniforms;
 @group(0) @binding(1) var<storage, read>        block_sums:        array<u32>;
 @group(0) @binding(2) var<storage, read_write>  splat_ref_offsets: array<u32>;
 

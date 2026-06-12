@@ -25,6 +25,11 @@ export class Camera {
     inverseProjectionMatrix: mat4;
     inverseViewMatrix: mat4;
 
+    // Monotonic counter bumped on every view/projection change. Renderers compare it
+    // against their last-seen value to skip work (e.g. splat binning) while the camera
+    // is held still. See GaussianSplatRenderer.render().
+    version = 0;
+
     constructor(position: vec3, target: vec3, up: vec3, fov: number, aspect: number, near: number, far: number) {
         this.position = vec3.clone(position);
         this.target = vec3.clone(target);
@@ -64,11 +69,13 @@ export class Camera {
     updateView() {
         mat4.lookAt(this.viewMatrix, this.position, this.target, this.up);
         mat4.invert(this.inverseViewMatrix, this.viewMatrix);
+        this.version++;
     }
 
     setProjection() {
         mat4.perspective(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
         mat4.invert(this.inverseProjectionMatrix, this.projectionMatrix);
+        this.version++;
     }
 
     setPosition(position: vec3) {

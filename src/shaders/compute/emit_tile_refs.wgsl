@@ -1,7 +1,7 @@
 // For each visible splat, emit one (sort_key, splat_id) pair per tile it overlaps.
 // sort_key is 64-bit packed as two u32:
 //   key_hi = tile_id                     (primary sort dimension)
-//   key_lo = bitcast(-depth)             (secondary: near → far within tile)
+//   key_lo = bitcast(-depth)             (secondary: near -> far within tile)
 //
 // Write positions are determined by the prefix scan output (splat_ref_offsets).
 // No atomics needed: each splat writes to its own pre-allocated slice.

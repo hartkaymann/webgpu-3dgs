@@ -26,6 +26,7 @@
             </a>
           </div>
           <canvas id="gfx-main"></canvas>
+          <div id="tileGridOverlay"></div>
           <div id="fps-counter">fps: <span id="fps"></span></div>
         </div>
       </div>
@@ -40,14 +41,24 @@
 
           <div id="debug" class="debug-controls">
 
-            <div class="input-group" id="raySampleInputs">
-              <label>Tiles X: <input type="number" id="samplesX" value="16" step="1" min="1" max="256"></label>
-              <label>Tiles Y: <input type="number" id="samplesY" value="16" step="1" min="1" max="256"></label>
+            <div class="input-group" id="tileSizeInputs">
+              <label>Tile size X (px): <input type="number" id="tileSizeX" value="16" step="1" min="1" max="256"></label>
+              <label>Tile size Y (px): <input type="number" id="tileSizeY" value="16" step="1" min="1" max="256"></label>
+            </div>
+
+            <div class="input-group">
+              <label>Splat draw mode:
+                <select id="splatDrawMode">
+                  <option value="0">Normal</option>
+                  <option value="1">Splats per tile</option>
+                </select>
+              </label>
             </div>
 
             <div class="input-group toggles">
               <label><input type="checkbox" id="renderGrid" checked>Render Grid</label>
               <label><input type="checkbox" id="renderSplats" checked>Render Splats</label>
+              <label><input type="checkbox" id="rebinEveryFrame" title="Force re-binning every frame for profiling purposes. If unchecked, re-binning only occurs when the camera moves or the number of splats changes.">Rebin every frame (profiling)</label>
             </div>
           </div>
 

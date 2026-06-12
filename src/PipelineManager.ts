@@ -12,6 +12,7 @@ interface PipelineConfig {
     type: PipelineType;
     layout: GPUPipelineLayout;
     code: string;
+    imports?: string[];
     constants?: Record<string, number>;
     codeConstants?: Record<string, number>;
     compute?: {
@@ -31,9 +32,13 @@ export class PipelineManager {
     }
 
     create(config: PipelineConfig): void {
-        const processedCode = config.codeConstants
-            ? this.applyShaderConstants(config.code, config.codeConstants)
+        const combinedCode = config.imports?.length
+            ? [...config.imports, config.code].join("\n")
             : config.code;
+
+        const processedCode = config.codeConstants
+            ? this.applyShaderConstants(combinedCode, config.codeConstants)
+            : combinedCode;
 
         const module = this.device.createShaderModule({
             label: `shader-${config.name}`,

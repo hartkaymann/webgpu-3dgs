@@ -1,6 +1,11 @@
 // Phase A of the parallel radix sort: per-workgroup digit histogram.
-// Each workgroup counts how many of its elements have each 4-bit digit value,
-// then writes its 16 counts to a row of the global histogram table.
+// Each workgroup counts how many of its elements have each 8-bit digit value,
+// then writes its 256 counts to a column of the global histogram table.
+//
+// The table is stored digit-major: radix_group_histograms[bucket * num_wg + wg].
+// This makes each digit's counts contiguous, so a single linear exclusive scan
+// over the whole table (see scan_local.wgsl) yields base_d + prefix_wg directly.
+//
 // One invocation per ref; guards with ref_counter so inactive lanes early-out.
 
 struct RadixUniforms {
@@ -17,14 +22,15 @@ struct SortKey { hi: u32, lo: u32 };
 
 fn digit(key: SortKey, bit_offset: u32) -> u32 {
     if (bit_offset < 32u) {
-        return (key.lo >> bit_offset) & 0xfu;
+        return (key.lo >> bit_offset) & 0xffu;
     } else {
-        return (key.hi >> (bit_offset - 32u)) & 0xfu;
+        return (key.hi >> (bit_offset - 32u)) & 0xffu;
     }
 }
 
-// Each workgroup gets 16 private atomic counters in shared memory.
-var<workgroup> local_hist: array<atomic<u32>, 16>;
+// Each workgroup gets 256 private atomic counters in shared memory.
+// (Requires WORKGROUP_SIZE >= 256 so every bucket is owned by one lane.)
+var<workgroup> local_hist: array<atomic<u32>, 256>;
 
 @compute @workgroup_size(__WORKGROUP_SIZE__)
 fn main(
@@ -32,8 +38,10 @@ fn main(
     @builtin(local_invocation_id)  lid:  vec3<u32>,
     @builtin(workgroup_id)         wgid: vec3<u32>,
 ) {
-    // Every lane with lid.x < 16 clears its histogram slot.
-    if (lid.x < 16u) {
+    let num_wg = uniforms.num_workgroups;
+
+    // Every lane with lid.x < 256 clears its histogram slot.
+    if (lid.x < 256u) {
         atomicStore(&local_hist[lid.x], 0u);
     }
     workgroupBarrier();
@@ -45,9 +53,9 @@ fn main(
     }
     workgroupBarrier();
 
-    // Write the 16 counts to this workgroup's row in the global table.
-    // Layout: radix_group_histograms[wg * 16 + bucket]
-    if (lid.x < 16u) {
-        radix_group_histograms[wgid.x * 16u + lid.x] = atomicLoad(&local_hist[lid.x]);
+    // Write the 256 counts to this workgroup's column in the global table.
+    // Layout (digit-major): radix_group_histograms[bucket * num_wg + wg]
+    if (lid.x < 256u) {
+        radix_group_histograms[lid.x * num_wg + wgid.x] = atomicLoad(&local_hist[lid.x]);
     }
 }

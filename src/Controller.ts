@@ -123,17 +123,21 @@ export class Controller {
         this.canRender.splats = true;
     }
 
-    updateTiles(tiles: [number, number] = [1, 1]) {
-        const [oldX, oldY] = this.scene.tiles;
+    // `size` is the tile pixel size (= rasterizer workgroup dims). The renderer clamps
+    // it to the device limits, recompiles the rasterizer, and re-derives the tile count.
+    // Returns the clamped dimensions actually in use.
+    setTileSize(size: [number, number] = [16, 16]): [number, number] {
+        return this.viewports.splatRenderer.setTileSize(size[0], size[1]);
+    }
 
-        this.scene.tiles = tiles;
-        this.sync.updateTiles(tiles);
+    // Splat draw mode: 0 = normal, 1 = splats-per-tile heatmap overlay.
+    setSplatDrawMode(mode: number) {
+        this.viewports.splatRenderer.setDebugMode(mode);
+    }
 
-        if (oldX !== this.scene.tiles[0] || oldY !== this.scene.tiles[1]) {
-            // this.sync.updateTileRelatedBuffers();
-            // this.collisionSystem.updateRayWorkgroups();
-            // this.collisionSystem.updateRayPipelines();
-        }
+    // Force the splat binning/rasterize to run every frame (profiling) vs. only on change.
+    setRebinEveryFrame(on: boolean) {
+        this.viewports.splatRenderer.setAlwaysRebin(on);
     }
 
     calculateFPS(currTime: number) {

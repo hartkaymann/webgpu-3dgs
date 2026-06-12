@@ -201,6 +201,7 @@ export class Viewport {
       colorView: swapchainView,
       depthTexture: this.depthTexture,
       depthView: this.depthView,
+      cameraVersion: this.camera.version,
     };
 
     if (plan.grid) {

@@ -3,6 +3,8 @@ export type RenderFrameInfo = {
 	colorView: GPUTextureView;
 	depthTexture: GPUTexture;
 	depthView: GPUTextureView;
+	// Monotonic camera change counter; renderers use it to skip work while static.
+	cameraVersion: number;
 };
 
 export interface IRenderer {

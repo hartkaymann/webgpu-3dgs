@@ -13,10 +13,10 @@
 //     Write tile_offsets[curr_tile + 1] = i + 1
 //
 // Races: both the END thread at i-1 and the START thread at i write
-// tile_offsets[prev_tile + 1] = i.  Same value from both → benign.
+// tile_offsets[prev_tile + 1] = i.  Same value from both -> benign.
 //
 // Trailing empty tiles (beyond the last populated tile) remain 0 from
-// clearBuffer; start == end == 0 → empty loop in the tile renderer. ✓
+// clearBuffer; start == end == 0 -> empty loop in the tile renderer. 
 
 struct SortKey {
     hi: u32, // tile_id

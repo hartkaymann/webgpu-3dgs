@@ -6,6 +6,9 @@
 //   block_sums[wg]        = total sum of the chunk             (input to prefix_scan_blocks)
 //
 // Elements beyond splat_count are treated as 0 (padding for the last chunk).
+//
+// The Blelloch sweep + `shared_data` live in scan_core.wgsl (prepended via the
+// pipeline's `imports`); this shader only loads/stores around blelloch_scan_tile.
 
 struct SplatBinningUniforms {
     tile_count:       vec2<u32>,
@@ -20,16 +23,13 @@ struct SplatBinningUniforms {
 @group(0) @binding(2) var<storage, read_write>  splat_ref_offsets: array<u32>;
 @group(0) @binding(3) var<storage, read_write>  block_sums:        array<u32>;
 
-// 2 elements per thread → chunk size = 2 * WORKGROUP_SIZE
-var<workgroup> shared_data: array<u32, __WORKGROUP_SIZE__ * 2>;
-
 @compute @workgroup_size(__WORKGROUP_SIZE__)
 fn main(
     @builtin(local_invocation_id) lid:  vec3<u32>,
     @builtin(workgroup_id)        wgid: vec3<u32>,
 ) {
     let n            = uniforms.splat_count;
-    let chunk_offset = wgid.x * (__WORKGROUP_SIZE__ * 2u);
+    let chunk_offset = wgid.x * __CHUNK_SIZE__;
     let left_idx     = chunk_offset + 2u * lid.x;
     let right_idx    = left_idx + 1u;
 
@@ -38,35 +38,8 @@ fn main(
     shared_data[2u * lid.x + 1u] = select(0u, splat_ref_counts[right_idx], right_idx < n);
     workgroupBarrier();
 
-    // Up-sweep: log2(WORKGROUP_SIZE * 2) steps.
-    // After each step, shared_data[idx] holds the sum of its subtree.
-    for (var stride = 1u; stride < __WORKGROUP_SIZE__ * 2u; stride = stride * 2u) {
-        let idx = (lid.x + 1u) * stride * 2u - 1u;
-        if idx < __WORKGROUP_SIZE__ * 2u {
-            shared_data[idx] += shared_data[idx - stride];
-        }
-        workgroupBarrier();
-    }
-
-    // shared_data[CHUNK_SIZE - 1] now holds the total sum for this chunk.
-    // Save it, then clear the root to make the scan exclusive.
-    if lid.x == 0u {
-        block_sums[wgid.x] = shared_data[__WORKGROUP_SIZE__ * 2u - 1u];
-        shared_data[__WORKGROUP_SIZE__ * 2u - 1u] = 0u;
-    }
-    workgroupBarrier();
-
-    // Down-sweep: log2(WORKGROUP_SIZE * 2) steps.
-    // Pushes partial sums back down to produce exclusive prefix sums.
-    for (var stride = u32(__WORKGROUP_SIZE__); stride >= 1u; stride = stride / 2u) {
-        let idx = (lid.x + 1u) * stride * 2u - 1u;
-        if idx < __WORKGROUP_SIZE__ * 2u {
-            let t = shared_data[idx - stride];
-            shared_data[idx - stride] = shared_data[idx];
-            shared_data[idx]         += t;
-        }
-        workgroupBarrier();
-    }
+    let total = blelloch_scan_tile(lid.x);
+    if lid.x == 0u { block_sums[wgid.x] = total; }
 
     // Write results back; skip out-of-bounds positions.
     if left_idx  < n { splat_ref_offsets[left_idx]  = shared_data[2u * lid.x]; }

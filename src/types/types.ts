@@ -47,6 +47,7 @@ export interface WorkgroupLimits {
     maxSizeY: number;
     maxSizeZ: number;
     maxDispatch: number;
+    maxSharedMemory: number;  // maxComputeWorkgroupStorageSize (bytes)
 }
 
 export interface BufferLimits {
