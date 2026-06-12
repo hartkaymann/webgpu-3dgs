@@ -1,0 +1,43 @@
+# .github/workflows/deploy.yml
+name: Build and Deploy to Strato
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install and Build
+        run: |
+          npm install
+          npm run build
+
+      - name: Clean remote assets folder
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ssh.strato.de
+          username: hartkaymann.com
+          key: ${{ secrets.STRATO_SSH_KEY }}
+          port: 22
+          script: rm -rf ~/3dgs/assets/*
+
+      - name: Copy files to Strato
+        uses: appleboy/scp-action@v0.1.6
+        with:
+          host: ssh.strato.de
+          username: hartkaymann.com
+          key: ${{ secrets.STRATO_SSH_KEY }}
+          source: dist/*
+          target: ~/3dgs
+          strip_components: 1
