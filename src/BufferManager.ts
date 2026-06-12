@@ -125,7 +125,7 @@ export class BufferManager {
         this.device.queue.writeBuffer(
             buffer,
             offset,
-            data,
+            data as any,
             dataOffset,
             safeSize / bytesPerElement
         );
