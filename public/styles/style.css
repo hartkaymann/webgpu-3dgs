@@ -177,6 +177,11 @@ canvas#gfx-main {
   max-width: 160px;
 }
 
+#todo-list {
+  list-style: armenian;
+  margin-top: auto;
+}
+
 .toggles {
   flex-wrap: wrap;
 }
