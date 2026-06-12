@@ -3,7 +3,7 @@ name: Build and Deploy to Strato
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
