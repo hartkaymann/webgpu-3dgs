@@ -4,7 +4,7 @@
 //
 // The table is stored digit-major: radix_group_histograms[bucket * num_wg + wg].
 // This makes each digit's counts contiguous, so a single linear exclusive scan
-// over the whole table (see scan_local.wgsl) yields base_d + prefix_wg directly.
+// over the whole table (see scan_dlb_histogram.wgsl) yields base_d + prefix_wg directly.
 //
 // One invocation per ref; guards with ref_counter so inactive lanes early-out.
 

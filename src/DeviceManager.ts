@@ -29,8 +29,14 @@ export class DeviceManager {
             maxComputeWorkgroupSizeZ: this.adapter.limits.maxComputeWorkgroupSizeZ,
         };
 
+        // The radix scatter shader relies on subgroup operations, so this feature
+        // is mandatory — without it there is no fallback path.
+        if (!this.adapter.features.has('subgroups')) {
+            throw new Error("WebGPU: the 'subgroups' feature is required but not supported by this adapter.");
+        }
+
         const canTimestamp = this.adapter.features.has('timestamp-query');
-        const requiredFeatures: GPUFeatureName[] = [];
+        const requiredFeatures: GPUFeatureName[] = ['subgroups'];
         if (canTimestamp) requiredFeatures.push('timestamp-query');
 
         this.device = await this.adapter.requestDevice({ requiredLimits, requiredFeatures });
