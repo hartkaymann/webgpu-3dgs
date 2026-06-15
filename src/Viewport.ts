@@ -9,8 +9,8 @@ import { PipelineManager } from "./PipelineManager";
 import { WorkgroupManager } from "./WorkgroupManager";
 import { RenderPlan } from "./Controller"
 import { GaussianSplatRenderer } from "./renderers/GaussianSplatRenderer";
-import { GizmoRenderer } from "./renderers/GizmoRenderer";
-import { GridRenderer } from "./renderers/GridRenderer";
+import { GizmoRenderer, GizmoConfig } from "./renderers/GizmoRenderer";
+import { GridRenderer, GridConfig } from "./renderers/GridRenderer";
 import { RenderFrameInfo } from "./renderers/IRenderer";
 import { Profiler } from "./Profiler";
 import { WebGPUContext } from "./types/types";
@@ -86,9 +86,36 @@ export class Viewport {
 
     this.input = new InputHandler(this.canvas, this.camera);
 
+    const xAxisColor: [number, number, number, number] = [0.90, 0.20, 0.20, 0.8];
+    const yAxisColor: [number, number, number, number] = [0.20, 0.80, 0.20, 0.8];
+    const zAxisColor: [number, number, number, number] = [0.20, 0.20, 0.90, 0.8];
+
+    const gridConfig: GridConfig = {
+      gridSize:       10000.0,
+      gridCellSize:   1.0,
+      majorGridDiv:   10.0,
+      axisLineWidth:  0.02,
+      majorLineWidth: 0.02,
+      minorLineWidth: 0.01,
+      majorLineColor: [0.36, 0.36, 0.36, 0.8],
+      minorLineColor: [0.36, 0.36, 0.39, 0.6],
+      baseColor:      [0.12, 0.12, 0.13, 0.0],
+      xAxisColor,
+      zAxisColor,
+    };
+
+    const gizmoConfig: GizmoConfig = {
+      size: 50,
+      xAxisColor,
+      yAxisColor,
+      zAxisColor,
+    };
+
     this.gridRenderer = new GridRenderer(
       this.device,
-      this.bindGroupManager
+      this.bufferManager,
+      this.bindGroupManager,
+      gridConfig,
     );
 
     this.splatRenderer = new GaussianSplatRenderer(
@@ -104,7 +131,8 @@ export class Viewport {
       this.camera,
       this.canvas,
       this.bufferManager,
-      this.bindGroupManager
+      this.bindGroupManager,
+      gizmoConfig,
     );
   }
 
@@ -204,6 +232,8 @@ export class Viewport {
       cameraVersion: this.camera.version,
     };
 
+    // Grid first (writes depth), then splats (depth-tested + written against the grid in
+    // the composite pass), then gizmo (2D overlay, no depth).
     if (plan.grid) {
       this.gridRenderer.render(commandEncoder, frame);
     }

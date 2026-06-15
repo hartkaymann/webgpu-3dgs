@@ -14,6 +14,15 @@ struct TileUniforms {
     viewport:   vec2<u32>,
 };
 
+struct CameraUniforms {
+    view:               mat4x4<f32>,
+    projection:         mat4x4<f32>,
+    inverse_view:       mat4x4<f32>,
+    inverse_projection: mat4x4<f32>,
+    position:           vec4<f32>,
+    viewport:           vec4<f32>,
+};
+
 struct ProjectedSplat {
     mean_px:   vec2<f32>,
     depth:     f32,
@@ -33,12 +42,16 @@ struct ProjectedSplat {
 @group(0) @binding(1) var<storage, read> projected_splats: array<ProjectedSplat>;
 @group(0) @binding(2) var<storage, read> tile_offsets:     array<u32>;
 @group(0) @binding(3) var<storage, read> tile_splat_ids:   array<u32>; // sorted sort_values
-@group(0) @binding(4) var               output:           texture_storage_2d<rgba16float, write>;
+@group(0) @binding(4) var                output:           texture_storage_2d<rgba16float, write>;
+@group(0) @binding(5) var                depth_output:     texture_storage_2d<r32float, write>;
+
+@group(1) @binding(0) var<uniform>       camera:           CameraUniforms;
 
 // Cooperatively-loaded splat data for the current batch (one slot per thread).
 var<workgroup> s_mean:         array<vec2<f32>, __TILE_AREA__>;
 var<workgroup> s_conic_op:     array<vec4<f32>, __TILE_AREA__>; // conic.xyz, opacity
 var<workgroup> s_color_radius: array<vec4<f32>, __TILE_AREA__>; // color.xyz, radius_px
+var<workgroup> s_depth:        array<f32, __TILE_AREA__>;       // view-space z (negative)
 
 @compute @workgroup_size(__TILE_X__, __TILE_Y__, 1)
 fn main(
@@ -60,6 +73,11 @@ fn main(
     var transmittance = 1.0;
     var done = !in_bounds; // out-of-viewport threads still load, but never composite/write
 
+    // View-space z of the nearest splat that contributes to this pixel (front-to-back,
+    // so the first accepted splat is the nearest). Used to write a per-pixel depth.
+    var nearest_z = 0.0;
+    var found     = false;
+
     var base = start;
     loop {
         if (base >= end) { break; }
@@ -71,6 +89,7 @@ fn main(
             s_mean[lindex]         = s.mean_px;
             s_conic_op[lindex]     = vec4<f32>(s.conic, s.opacity);
             s_color_radius[lindex] = vec4<f32>(s.color, s.radius_px);
+            s_depth[lindex]        = s.depth;
         }
         workgroupBarrier();
 
@@ -92,6 +111,12 @@ fn main(
                 let alpha = min(0.99, co.w * exp(power));
                 if (alpha < 1.0 / 255.0) { continue; }
 
+                // First splat to clear the alpha threshold is the nearest contributor.
+                if (!found) {
+                    nearest_z = s_depth[j];
+                    found = true;
+                }
+
                 color += transmittance * alpha * cr.xyz;
                 transmittance *= 1.0 - alpha;
 
@@ -106,5 +131,16 @@ fn main(
     if (in_bounds) {
         let alpha_out = 1.0 - transmittance;
         textureStore(output, vec2<i32>(pixel), vec4<f32>(color, alpha_out));
+
+        // Convert the nearest splat's view-space z to NDC depth [0,1] so the composite
+        // pass can depth-test against geometry (grid). Standard perspective: clip.z/clip.w
+        // depend only on view z. Pixels with no contributor get the far plane (1.0).
+        var ndc_z = 1.0;
+        if (found) {
+            let zc = camera.projection[2].z * nearest_z + camera.projection[3].z;
+            let wc = camera.projection[2].w * nearest_z + camera.projection[3].w;
+            ndc_z = clamp(zc / wc, 0.0, 1.0);
+        }
+        textureStore(depth_output, vec2<i32>(pixel), vec4<f32>(ndc_z, 0.0, 0.0, 0.0));
     }
 }

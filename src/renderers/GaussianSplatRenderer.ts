@@ -51,6 +51,10 @@ export class GaussianSplatRenderer implements IRenderer {
     // Offscreen splat target (premultiplied rgba16float), composited onto the screen.
     private splatTarget: GPUTexture | null = null;
     private splatTargetView: GPUTextureView | null = null;
+    // Per-pixel nearest-splat depth (NDC z, r32float), used by the composite pass to
+    // depth-test/write against geometry (grid). Foundation for hybrid rendering.
+    private splatDepthTarget: GPUTexture | null = null;
+    private splatDepthTargetView: GPUTextureView | null = null;
     // Offscreen debug target: the splat target with the per-tile heatmap overlaid.
     private debugTarget: GPUTexture | null = null;
     private debugTargetView: GPUTextureView | null = null;
@@ -233,6 +237,15 @@ export class GaussianSplatRenderer implements IRenderer {
         });
         this.splatTargetView = this.splatTarget.createView();
 
+        this.splatDepthTarget?.destroy();
+        this.splatDepthTarget = this.device.createTexture({
+            label: "splat-depth-target",
+            size: [viewportW, viewportH],
+            format: "r32float",
+            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        });
+        this.splatDepthTargetView = this.splatDepthTarget.createView();
+
         this.debugTarget?.destroy();
         this.debugTarget = this.device.createTexture({
             label: "splat-debug-target",
@@ -262,6 +275,7 @@ export class GaussianSplatRenderer implements IRenderer {
                 { binding: 2, resource: { buffer: this.bufferManager.get("tile_offsets") } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("sort_values_a") } },
                 { binding: 4, resource: this.splatTargetView },
+                { binding: 5, resource: this.splatDepthTargetView },
             ],
         });
         this.bindGroupManager.createGroup({
@@ -278,6 +292,7 @@ export class GaussianSplatRenderer implements IRenderer {
             layoutName: "composite",
             entries: [
                 { binding: 0, resource: this.splatTargetView },
+                { binding: 1, resource: this.splatDepthTargetView },
             ],
         });
         this.bindGroupManager.createGroup({
@@ -285,6 +300,7 @@ export class GaussianSplatRenderer implements IRenderer {
             layoutName: "composite",
             entries: [
                 { binding: 0, resource: this.debugTargetView },
+                { binding: 1, resource: this.splatDepthTargetView },
             ],
         });
     }
@@ -585,6 +601,7 @@ export class GaussianSplatRenderer implements IRenderer {
                 { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },  // tile_offsets
                 { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },  // sorted sort_values
                 { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d" } }, // splat target
+                { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32float", viewDimension: "2d" } },   // splat depth target
             ],
         });
 
@@ -593,6 +610,7 @@ export class GaussianSplatRenderer implements IRenderer {
             name: "composite",
             entries: [
                 { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } }, // splat target
+                { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } }, // splat depth target
             ],
         });
 
@@ -806,7 +824,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         const rasterizeLayout = this.device.createPipelineLayout({
             label: "layout-rasterize-tiles",
-            bindGroupLayouts: this.bindGroupManager.getLayouts(["rasterize_io"]),
+            bindGroupLayouts: this.bindGroupManager.getLayouts(["rasterize_io", "camera"]),
         });
 
         const compositeLayout = this.device.createPipelineLayout({
@@ -940,6 +958,13 @@ export class GaussianSplatRenderer implements IRenderer {
                     }],
                 },
                 primitive: { topology: "triangle-list", cullMode: "none" },
+                // Test the nearest splat's NDC depth against the grid's depth (less-equal),
+                // and write it so future opaque geometry can occlude/blend correctly.
+                depthStencil: {
+                    format: "depth24plus",
+                    depthWriteEnabled: true,
+                    depthCompare: "less-equal",
+                },
             },
         });
 
@@ -984,6 +1009,8 @@ export class GaussianSplatRenderer implements IRenderer {
                     storeOp: "store",
                 },
             ],
+            // Depth-test the composited splats against the grid (depth written earlier this frame).
+            depthStencilAttachment: { view: undefined, depthLoadOp: "load", depthStoreOp: "store" },
         };
 
         this.overlayPassDescriptor = {
@@ -1084,6 +1111,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // Stage 6C: composite onto the screen (fullscreen triangle, premultiplied over).
         this.compositePassDescriptor.colorAttachments[0].view = frame.colorView;
+        this.compositePassDescriptor.depthStencilAttachment!.view = frame.depthView;
 
         const compositePass = this.profiler.beginRenderPass("composite-splats", commandEncoder, this.compositePassDescriptor);
         compositePass.setPipeline(this.compositePipeline);
@@ -1255,6 +1283,7 @@ export class GaussianSplatRenderer implements IRenderer {
             const pass = this.profiler.beginComputePass("rasterize-tiles", commandEncoder);
             pass.setPipeline(this.rasterizePipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("rasterize_io"));
+            pass.setBindGroup(1, this.bindGroupManager.getGroup("camera"));
             pass.dispatchWorkgroups(tilesX, tilesY, 1);
             pass.end();
         }
