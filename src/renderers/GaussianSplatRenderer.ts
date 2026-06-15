@@ -4,10 +4,13 @@ import debug_tile_overlay_src from "../shaders/render/debug_tile_overlay.wgsl";
 import emit_tile_refs_src from "../shaders/compute/emit_tile_refs.wgsl";
 import identify_tile_ranges_src from "../shaders/compute/identify_tile_ranges.wgsl";
 import splat_preprocess_src from "../shaders/compute/preprocess_splats.wgsl";
+import prefix_scan_local_src from "../shaders/compute/prefix_scan_local.wgsl";
+import prefix_scan_blocks_src from "../shaders/compute/prefix_scan_blocks.wgsl";
+import prefix_scan_add_src from "../shaders/compute/prefix_scan_add.wgsl";
 import radix_histogram_src from "../shaders/compute/radix_histogram.wgsl";
 import scan_core_src from "../shaders/compute/scan_core.wgsl";
-import scan_dlb_histogram_src from "../shaders/compute/scan_dlb_histogram.wgsl";
-import scan_dlb_splatrefs_src from "../shaders/compute/scan_dlb_splatrefs.wgsl";
+import scan_local_src from "../shaders/compute/radix_histogram_scan_local.wgsl";
+import scan_add_src from "../shaders/compute/radix_histogram_scan_add.wgsl";
 import radix_scatter_src from "../shaders/compute/radix_scatter.wgsl";
 
 import { BindGroupManager } from "../BindGroupsManager";
@@ -17,7 +20,7 @@ import { Profiler } from "../Profiler";
 import { Scene } from "../Scene";
 import { IRenderer, RenderFrameInfo } from "./IRenderer";
 import { Config } from "../types/config";
-import { WorkgroupManager, linear1D, tile2D } from "../WorkgroupManager";
+import { WorkgroupManager, linear1D, tiled1D, tile2D } from "../WorkgroupManager";
 
 export class GaussianSplatRenderer implements IRenderer {
     private device: GPUDevice;
@@ -29,10 +32,13 @@ export class GaussianSplatRenderer implements IRenderer {
     private profiler: Profiler;
 
     private preprocessPipeline: GPUComputePipeline | null = null;
-    private scanSplatRefsPipeline: GPUComputePipeline | null = null;
+    private prefixScanLocalPipeline: GPUComputePipeline | null = null;
+    private prefixScanBlocksPipeline: GPUComputePipeline | null = null;
+    private prefixScanAddPipeline: GPUComputePipeline | null = null;
     private emitRefsPipeline: GPUComputePipeline | null = null;
     private radixHistogramPipeline: GPUComputePipeline | null = null;
-    private scanHistogramPipeline: GPUComputePipeline | null = null;
+    private scanLocalPipeline: GPUComputePipeline | null = null;
+    private scanAddPipeline: GPUComputePipeline | null = null;
     private radixScatterPipeline: GPUComputePipeline | null = null;
     private identifyTileRangesPipeline: GPUComputePipeline | null = null;
     private rasterizePipeline: GPUComputePipeline | null = null;
@@ -73,25 +79,11 @@ export class GaussianSplatRenderer implements IRenderer {
     private tileCountMapPending = false;
 
     // Device-derived workgroup sizes, set in registerBinningLayouts from the
-    // WorkgroupManager layouts.
+    // WorkgroupManager layouts. Scan adapts to the device; radix stays at 256.
     private scanWorkgroupSize  = 256;
+    private scanChunkSize      = 512; // 2 * scanWorkgroupSize (Blelloch scans pairs)
     private radixWorkgroupSize = 256;
     private lastSplatCount     = -1;  // splat count the binning buffers were last sized for
-
-    // Decoupled look-back scan: each workgroup scans a tile of
-    // scanWorkgroupSize * SCAN_ELEMENTS_PER_THREAD elements in one dispatch.
-    private static readonly SCAN_ELEMENTS_PER_THREAD = 32;
-    private get scanTile(): number { return this.scanWorkgroupSize * GaussianSplatRenderer.SCAN_ELEMENTS_PER_THREAD; }
-
-    // Shader macros for the decoupled look-back scans. MAX_SUBGROUPS sizes the per-subgroup
-    // scratch array for the smallest legal subgroup size (4), so it fits any device.
-    private scanConstants(): Record<string, number> {
-        return {
-            WORKGROUP_SIZE: this.scanWorkgroupSize,
-            ELEMENTS_PER_THREAD: GaussianSplatRenderer.SCAN_ELEMENTS_PER_THREAD,
-            MAX_SUBGROUPS: Math.max(1, this.scanWorkgroupSize / 4),
-        };
-    }
 
     // 64-bit key, 8 bits per pass -> 8 passes total
     private static readonly RADIX_BITS                = 8;
@@ -119,9 +111,11 @@ export class GaussianSplatRenderer implements IRenderer {
         this.workgroups = new WorkgroupManager(this.device);
     }
 
-    // Dynamic-offset stride for scan_dlb_uniforms: two 256-aligned slots (histogram n,
-    // splat-ref n), one selected per scan dispatch.
+    // Dynamic-offset stride for scan_uniforms (one 256-aligned u32 slot per level).
     private static readonly SCAN_UNIFORM_STRIDE = 256;
+    // Pre-created recursion levels for the histogram scan. With device-adaptive chunk
+    // sizes a few levels always collapse 256*radixGroupCount entries to a single tile.
+    private static readonly SCAN_MAX_LEVELS = 4;
 
     private maxRefsFor(splatCount: number): number {
         return Math.max(1, Math.max(1, splatCount) * Math.max(1, Config.MAX_TILES_PER_SPLAT));
@@ -141,14 +135,24 @@ export class GaussianSplatRenderer implements IRenderer {
             name: "radix", problemSize: [maxRefs, 1, 1],
             strategyFn: linear1D, strategyArgs: [GaussianSplatRenderer.RADIX_WORKGROUP_PREFERRED],
         });
-        // The decoupled look-back scan uses a fixed workgroup size; each workgroup scans a
-        // tile of scanWorkgroupSize * SCAN_ELEMENTS_PER_THREAD elements with subgroup ops.
+        // Two scan layouts with the same Blelloch geometry but distinct algorithms: the
+        // per-splat prefix scan (Stage 2) and the recursive histogram scan (Stage 4B). They
+        // share strategy `tiled1D(2, 4)` — 2 = Blelloch pairs (see scan_core.wgsl),
+        // structural, not tunable; 4 = u32 bytes per element — so their workgroup/chunk
+        // sizes are identical, but each owns its own problem size.
         this.workgroups.register({
-            name: "scan", problemSize: [splatCount, 1, 1],
-            strategyFn: linear1D, strategyArgs: [256],
+            name: "splat-scan", problemSize: [splatCount, 1, 1],
+            strategyFn: tiled1D, strategyArgs: [2, 4],
+        });
+        // Re-sized per recursion level via WorkgroupManager.levels(); seeded at 1.
+        this.workgroups.register({
+            name: "histogram-scan", problemSize: [1, 1, 1],
+            strategyFn: tiled1D, strategyArgs: [2, 4],
         });
 
-        this.scanWorkgroupSize  = this.workgroups.getLayout("scan").workgroupSize[0];
+        this.scanWorkgroupSize  = this.workgroups.getLayout("splat-scan").workgroupSize[0];
+        // Blelloch scans pairs (see scan_core.wgsl): chunk = 2 * workgroup size.
+        this.scanChunkSize      = 2 * this.scanWorkgroupSize;
         this.radixWorkgroupSize = this.workgroups.getLayout("radix").workgroupSize[0];
 
         // Tile rasterizer: workgroup = tile pixel size (one thread per pixel). The tile
@@ -169,25 +173,35 @@ export class GaussianSplatRenderer implements IRenderer {
         return [tx, ty];
     }
 
-    // Dispatch counts for the current splat count, derived from the registered layouts.
-    // The decoupled look-back scans run in a single dispatch of ceil(n / scanTile) tiles:
-    // histTiles for the digit-major histogram, refTiles for the per-splat ref scan.
+    // Recursive histogram-scan levels: the chain comes from the "histogram-scan" layout
+    // (WorkgroupManager.levels re-applies its strategy per level without mutating it),
+    // tagged with the per-level bind group used during dispatch.
+    private scanLevels(histogramSize: number): { n: number; tiles: number; group: string }[] {
+        return this.workgroups
+            .levels("histogram-scan", histogramSize, GaussianSplatRenderer.SCAN_MAX_LEVELS)
+            .map((lvl, l) => ({ n: lvl.problemSize, tiles: lvl.dispatchSize, group: `radix_scan_${l}` }));
+    }
+
+    // Dispatch counts + the per-level scan chain for the current splat count, all
+    // derived from the registered layouts (updates "radix"/"splat-scan" problem sizes as a
+    // side effect; the histogram chain is computed without mutating any stored layout).
     private binningSizes(splatCount: number): {
         maxRefs: number;
         radixGroupCount: number;
+        scanGroupCount: number;
         histogramSize: number;
-        histTiles: number;
-        refTiles: number;
+        levels: { n: number; tiles: number; group: string }[];
     } {
         const maxRefs = this.maxRefsFor(splatCount);
-        this.workgroups.update("radix", { problemSize: [maxRefs, 1, 1] });
+        this.workgroups.update("radix",      { problemSize: [maxRefs, 1, 1] });
+        this.workgroups.update("splat-scan", { problemSize: [splatCount, 1, 1] });
 
         const radixGroupCount = this.workgroups.getLayout("radix").dispatchSize[0];
+        const scanGroupCount  = this.workgroups.getLayout("splat-scan").dispatchSize[0];
         const histogramSize   = GaussianSplatRenderer.RADIX_BUCKETS * radixGroupCount;
-        const histTiles       = Math.max(1, Math.ceil(histogramSize / this.scanTile));
-        const refTiles        = Math.max(1, Math.ceil(splatCount / this.scanTile));
+        const levels          = this.scanLevels(histogramSize);
 
-        return { maxRefs, radixGroupCount, histogramSize, histTiles, refTiles };
+        return { maxRefs, radixGroupCount, scanGroupCount, histogramSize, levels };
     }
 
     // Resize every compute/binning buffer to match the current splat count. The
@@ -198,6 +212,7 @@ export class GaussianSplatRenderer implements IRenderer {
         this.bufferManager.resize("projected_splats", splatCount * Config.PROJECTED_SPLAT_STRIDE);
         this.bufferManager.resize("splat_ref_counts", splatCount * 4);
         this.bufferManager.resize("splat_ref_offsets", (splatCount + 1) * 4);
+        this.bufferManager.resize("block_sums", sizes.scanGroupCount * 4);
 
         this.bufferManager.resize("sort_keys_a", sizes.maxRefs * 8);
         this.bufferManager.resize("sort_keys_b", sizes.maxRefs * 8);
@@ -205,8 +220,10 @@ export class GaussianSplatRenderer implements IRenderer {
         this.bufferManager.resize("sort_values_b", sizes.maxRefs * 4);
 
         this.bufferManager.resize("radix_group_histograms", sizes.histogramSize * 4);
-        // One look-back state slot per tile; histogram (the larger scan) bounds the size.
-        this.bufferManager.resize("scan_tile_state", Math.max(sizes.histTiles, sizes.refTiles) * 4);
+        for (let l = 0; l < GaussianSplatRenderer.SCAN_MAX_LEVELS; l++) {
+            const tiles = l < sizes.levels.length ? sizes.levels[l].tiles : 1;
+            this.bufferManager.resize(`radix_scan_sums${l}`, tiles * 4);
+        }
     }
 
     // (Re)create the offscreen splat target + tile_offsets and their bind groups for the
@@ -338,9 +355,9 @@ export class GaussianSplatRenderer implements IRenderer {
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             },
             {
-                // Two [n] slots (histogram size, splat count) for the DLB scans, dynamic-offset bound.
-                name: "scan_dlb_uniforms",
-                size: 2 * GaussianSplatRenderer.SCAN_UNIFORM_STRIDE,
+                // One slot of [n] per recursion level for the histogram scan, dynamic-offset bound.
+                name: "scan_uniforms",
+                size: GaussianSplatRenderer.SCAN_MAX_LEVELS * GaussianSplatRenderer.SCAN_UNIFORM_STRIDE,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             },
 
@@ -393,16 +410,10 @@ export class GaussianSplatRenderer implements IRenderer {
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
             {
-                // Decoupled look-back state: one packed (flag, value) slot per scan tile.
-                name: "scan_tile_state",
-                size: Math.max(sizes.histTiles, sizes.refTiles) * 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            },
-            {
-                // Global tile dispenser for the decoupled look-back scans.
-                name: "scan_part_counter",
-                size: 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                // Blelloch scan intermediate: one total per chunk.
+                name: "block_sums",
+                size: sizes.scanGroupCount * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
 
             // ── Stage 3 output / radix sort ping-pong ──────────────────────────────
@@ -436,6 +447,12 @@ export class GaussianSplatRenderer implements IRenderer {
                 size: sizes.histogramSize * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
             },
+            // Recursive scan scratch: one tile-sum buffer per level (= that level's dispatch).
+            ...Array.from({ length: GaussianSplatRenderer.SCAN_MAX_LEVELS }, (_, l) => ({
+                name: `radix_scan_sums${l}`,
+                size: (l < sizes.levels.length ? sizes.levels[l].tiles : 1) * 4,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+            })),
 
             // ── Stage 5 output ──────────────────────────────────────────────────────
             {
@@ -475,16 +492,35 @@ export class GaussianSplatRenderer implements IRenderer {
             ],
         });
 
-        // Stage 2: single-pass decoupled look-back scan of splat_ref_counts -> splat_ref_offsets
+        // Stage 2A: local Blelloch scan
         this.bindGroupManager.createLayout({
-            name: "scan_dlb_splatrefs_pass",
+            name: "prefix_scan_local_pass",
             entries: [
-                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", hasDynamicOffset: true } }, // scan_dlb_uniforms (n)
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },           // splat_binning_uniforms
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, // splat_ref_counts
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // splat_ref_offsets (write)
-                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // ref_counter (total + sentinel)
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // scan_tile_state
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // scan_part_counter
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // splat_ref_offsets (partial write)
+                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // block_sums (write)
+            ],
+        });
+
+        // Stage 2B: sequential block scan
+        this.bindGroupManager.createLayout({
+            name: "prefix_scan_blocks_pass",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },           // splat_binning_uniforms
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // block_sums (in-place scan)
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // splat_ref_offsets (sentinel write)
+                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // ref_counter (write)
+            ],
+        });
+
+        // Stage 2C: add block offsets
+        this.bindGroupManager.createLayout({
+            name: "prefix_scan_add_pass",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },           // splat_binning_uniforms
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, // block_sums (read offsets)
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // splat_ref_offsets (add offset)
             ],
         });
 
@@ -511,14 +547,13 @@ export class GaussianSplatRenderer implements IRenderer {
             ],
         });
 
-        // Stage 4B: single-pass decoupled look-back scan of the digit-major histogram, in place
+        // Stage 4B: recursive histogram scan (scan_local / scan_add share this layout)
         this.bindGroupManager.createLayout({
-            name: "scan_dlb_histogram_pass",
+            name: "radix_scan_pass",
             entries: [
-                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", hasDynamicOffset: true } }, // scan_dlb_uniforms (n)
-                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // radix_group_histograms (in place)
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // scan_tile_state
-                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // scan_part_counter
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", hasDynamicOffset: true } }, // scan_uniforms (n)
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // data (scanned in place)
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },           // block_sums (tile sums)
             ],
         });
 
@@ -600,15 +635,34 @@ export class GaussianSplatRenderer implements IRenderer {
         });
 
         this.bindGroupManager.createGroup({
-            name: "scan_dlb_splatrefs",
-            layoutName: "scan_dlb_splatrefs_pass",
+            name: "prefix_scan_local",
+            layoutName: "prefix_scan_local_pass",
             entries: [
-                { binding: 0, resource: { buffer: this.bufferManager.get("scan_dlb_uniforms"), offset: 0, size: 4 } },
+                { binding: 0, resource: { buffer: this.bufferManager.get("splat_binning_uniforms") } },
                 { binding: 1, resource: { buffer: this.bufferManager.get("splat_ref_counts") } },
                 { binding: 2, resource: { buffer: this.bufferManager.get("splat_ref_offsets") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get("block_sums") } },
+            ],
+        });
+
+        this.bindGroupManager.createGroup({
+            name: "prefix_scan_blocks",
+            layoutName: "prefix_scan_blocks_pass",
+            entries: [
+                { binding: 0, resource: { buffer: this.bufferManager.get("splat_binning_uniforms") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("block_sums") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("splat_ref_offsets") } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("ref_counter") } },
-                { binding: 4, resource: { buffer: this.bufferManager.get("scan_tile_state") } },
-                { binding: 5, resource: { buffer: this.bufferManager.get("scan_part_counter") } },
+            ],
+        });
+
+        this.bindGroupManager.createGroup({
+            name: "prefix_scan_add",
+            layoutName: "prefix_scan_add_pass",
+            entries: [
+                { binding: 0, resource: { buffer: this.bufferManager.get("splat_binning_uniforms") } },
+                { binding: 1, resource: { buffer: this.bufferManager.get("block_sums") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get("splat_ref_offsets") } },
             ],
         });
 
@@ -647,17 +701,23 @@ export class GaussianSplatRenderer implements IRenderer {
             ],
         });
 
-        // Stage 4B: single-pass decoupled look-back scan of the digit-major histogram, in place.
-        this.bindGroupManager.createGroup({
-            name: "scan_dlb_histogram",
-            layoutName: "scan_dlb_histogram_pass",
-            entries: [
-                { binding: 0, resource: { buffer: this.bufferManager.get("scan_dlb_uniforms"), offset: 0, size: 4 } },
-                { binding: 1, resource: { buffer: this.bufferManager.get("radix_group_histograms") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("scan_tile_state") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("scan_part_counter") } },
-            ],
-        });
+        // Stage 4B: recursive histogram scan. One group per level, scanning its data
+        // buffer in place and writing tile sums to the next level's buffer.
+        //   L0: radix_group_histograms -> radix_scan_sums0
+        //   L1: radix_scan_sums0       -> radix_scan_sums1
+        //   L2: radix_scan_sums1       -> radix_scan_sums2
+        const scanData = ["radix_group_histograms", "radix_scan_sums0", "radix_scan_sums1", "radix_scan_sums2"];
+        for (let l = 0; l < GaussianSplatRenderer.SCAN_MAX_LEVELS; l++) {
+            this.bindGroupManager.createGroup({
+                name: `radix_scan_${l}`,
+                layoutName: "radix_scan_pass",
+                entries: [
+                    { binding: 0, resource: { buffer: this.bufferManager.get("scan_uniforms"), offset: 0, size: 4 } },
+                    { binding: 1, resource: { buffer: this.bufferManager.get(scanData[l]) } },
+                    { binding: 2, resource: { buffer: this.bufferManager.get(`radix_scan_sums${l}`) } },
+                ],
+            });
+        }
 
         // Stage 4C: scatter - ping-pong on read/write direction.
         // With 16 (even) passes, sorted data ends up back in _a buffers.
@@ -709,9 +769,19 @@ export class GaussianSplatRenderer implements IRenderer {
             bindGroupLayouts: this.bindGroupManager.getLayouts(["camera", "splat_input", "splat_preprocess"]),
         });
 
-        const scanSplatRefsLayout = this.device.createPipelineLayout({
-            label: "layout-scan-dlb-splatrefs",
-            bindGroupLayouts: this.bindGroupManager.getLayouts(["scan_dlb_splatrefs_pass"]),
+        const prefixScanLocalLayout = this.device.createPipelineLayout({
+            label: "layout-prefix-scan-local",
+            bindGroupLayouts: this.bindGroupManager.getLayouts(["prefix_scan_local_pass"]),
+        });
+
+        const prefixScanBlocksLayout = this.device.createPipelineLayout({
+            label: "layout-prefix-scan-blocks",
+            bindGroupLayouts: this.bindGroupManager.getLayouts(["prefix_scan_blocks_pass"]),
+        });
+
+        const prefixScanAddLayout = this.device.createPipelineLayout({
+            label: "layout-prefix-scan-add",
+            bindGroupLayouts: this.bindGroupManager.getLayouts(["prefix_scan_add_pass"]),
         });
 
         const emitRefsLayout = this.device.createPipelineLayout({
@@ -724,9 +794,9 @@ export class GaussianSplatRenderer implements IRenderer {
             bindGroupLayouts: this.bindGroupManager.getLayouts(["radix_histogram_pass"]),
         });
 
-        const scanHistogramLayout = this.device.createPipelineLayout({
-            label: "layout-scan-dlb-histogram",
-            bindGroupLayouts: this.bindGroupManager.getLayouts(["scan_dlb_histogram_pass"]),
+        const radixScanLayout = this.device.createPipelineLayout({
+            label: "layout-radix-scan",
+            bindGroupLayouts: this.bindGroupManager.getLayouts(["radix_scan_pass"]),
         });
 
         const radixScatterLayout = this.device.createPipelineLayout({
@@ -764,12 +834,30 @@ export class GaussianSplatRenderer implements IRenderer {
         });
 
         this.pipelineManager.create({
-            name: "scan-dlb-splatrefs",
+            name: "prefix-scan-local",
             type: "compute",
-            layout: scanSplatRefsLayout,
-            code: scan_dlb_splatrefs_src,
+            layout: prefixScanLocalLayout,
+            code: prefix_scan_local_src,
             imports: [scan_core_src],
-            codeConstants: this.scanConstants(),
+            codeConstants: { WORKGROUP_SIZE: this.scanWorkgroupSize, CHUNK_SIZE: this.scanChunkSize },
+            compute: { entryPoint: "main" },
+        });
+
+        this.pipelineManager.create({
+            name: "prefix-scan-blocks",
+            type: "compute",
+            layout: prefixScanBlocksLayout,
+            code: prefix_scan_blocks_src,
+            codeConstants: { CHUNK_SIZE: this.scanChunkSize },
+            compute: { entryPoint: "main" },
+        });
+
+        this.pipelineManager.create({
+            name: "prefix-scan-add",
+            type: "compute",
+            layout: prefixScanAddLayout,
+            code: prefix_scan_add_src,
+            codeConstants: { WORKGROUP_SIZE: this.scanWorkgroupSize },
             compute: { entryPoint: "main" },
         });
 
@@ -792,12 +880,21 @@ export class GaussianSplatRenderer implements IRenderer {
         });
 
         this.pipelineManager.create({
-            name: "scan-dlb-histogram",
+            name: "scan-local",
             type: "compute",
-            layout: scanHistogramLayout,
-            code: scan_dlb_histogram_src,
+            layout: radixScanLayout,
+            code: scan_local_src,
             imports: [scan_core_src],
-            codeConstants: this.scanConstants(),
+            codeConstants: { WORKGROUP_SIZE: this.scanWorkgroupSize, CHUNK_SIZE: this.scanChunkSize },
+            compute: { entryPoint: "main" },
+        });
+
+        this.pipelineManager.create({
+            name: "scan-add",
+            type: "compute",
+            layout: radixScanLayout,
+            code: scan_add_src,
+            codeConstants: { WORKGROUP_SIZE: this.scanWorkgroupSize },
             compute: { entryPoint: "main" },
         });
 
@@ -868,10 +965,13 @@ export class GaussianSplatRenderer implements IRenderer {
         });
 
         this.preprocessPipeline       = this.pipelineManager.get<GPUComputePipeline>("preprocess-splats");
-        this.scanSplatRefsPipeline    = this.pipelineManager.get<GPUComputePipeline>("scan-dlb-splatrefs");
+        this.prefixScanLocalPipeline  = this.pipelineManager.get<GPUComputePipeline>("prefix-scan-local");
+        this.prefixScanBlocksPipeline = this.pipelineManager.get<GPUComputePipeline>("prefix-scan-blocks");
+        this.prefixScanAddPipeline    = this.pipelineManager.get<GPUComputePipeline>("prefix-scan-add");
         this.emitRefsPipeline         = this.pipelineManager.get<GPUComputePipeline>("emit-tile-refs");
         this.radixHistogramPipeline = this.pipelineManager.get<GPUComputePipeline>("radix-histogram");
-        this.scanHistogramPipeline = this.pipelineManager.get<GPUComputePipeline>("scan-dlb-histogram");
+        this.scanLocalPipeline = this.pipelineManager.get<GPUComputePipeline>("scan-local");
+        this.scanAddPipeline = this.pipelineManager.get<GPUComputePipeline>("scan-add");
         this.radixScatterPipeline = this.pipelineManager.get<GPUComputePipeline>("radix-scatter");
         this.identifyTileRangesPipeline = this.pipelineManager.get<GPUComputePipeline>("identify-tile-ranges");
         this.rasterizePipeline = this.pipelineManager.get<GPUComputePipeline>("rasterize-tiles");
@@ -904,25 +1004,30 @@ export class GaussianSplatRenderer implements IRenderer {
         };
     }
 
-    // Single-pass decoupled look-back exclusive scan (see scan_core.wgsl). Resets the
-    // shared look-back state, then dispatches one workgroup per tile. The uniform offset
-    // selects the element count slot (0 = histogram, 1 = splat refs).
-    private runDlbScan(
+    // Parallel exclusive prefix scan of the digit-major histogram, in place.
+    // Up-sweep scans each tile and emits tile sums to the next level; the deepest
+    // level (single tile) needs no add; down-sweep folds the scanned offsets back.
+    private scanHistogram(
         commandEncoder: GPUCommandEncoder,
-        label: string,
-        pipeline: GPUComputePipeline,
-        groupName: string,
-        uniformOffset: number,
-        numTiles: number,
+        levels: { n: number; tiles: number; group: string }[],
     ): void {
-        commandEncoder.clearBuffer(this.bufferManager.get("scan_tile_state"));
-        commandEncoder.clearBuffer(this.bufferManager.get("scan_part_counter"));
+        const scanStride = GaussianSplatRenderer.SCAN_UNIFORM_STRIDE;
 
-        const pass = this.profiler.beginComputePass(label, commandEncoder);
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, this.bindGroupManager.getGroup(groupName), [uniformOffset]);
-        pass.dispatchWorkgroups(numTiles);
-        pass.end();
+        for (let l = 0; l < levels.length; l++) {
+            const pass = this.profiler.beginComputePass("scan-local", commandEncoder);
+            pass.setPipeline(this.scanLocalPipeline);
+            pass.setBindGroup(0, this.bindGroupManager.getGroup(levels[l].group), [l * scanStride]);
+            pass.dispatchWorkgroups(levels[l].tiles);
+            pass.end();
+        }
+
+        for (let l = levels.length - 2; l >= 0; l--) {
+            const pass = this.profiler.beginComputePass("scan-add", commandEncoder);
+            pass.setPipeline(this.scanAddPipeline);
+            pass.setBindGroup(0, this.bindGroupManager.getGroup(levels[l].group), [l * scanStride]);
+            pass.dispatchWorkgroups(levels[l].tiles);
+            pass.end();
+        }
     }
 
     render(commandEncoder: GPUCommandEncoder, frame: RenderFrameInfo): void {
@@ -1045,20 +1150,34 @@ export class GaussianSplatRenderer implements IRenderer {
             pass.end();
         }
 
-        // Element counts for the two decoupled look-back scans: slot 0 = histogram size,
-        // slot 1 = splat count (256-byte-aligned for dynamic-offset binding).
-        const scanSlotStride = GaussianSplatRenderer.SCAN_UNIFORM_STRIDE / 4;
-        const scanSlots = new Uint32Array(2 * scanSlotStride);
-        scanSlots[0]               = sizes.histogramSize;
-        scanSlots[scanSlotStride]  = splatCount;
-        this.bufferManager.write("scan_dlb_uniforms", scanSlots, 0);
+        // Stage 2: Blelloch parallel prefix scan
+        // 2A: local scan - each of scanGroupCount workgroups Blelloch-scans its chunk,
+        //     writes partial prefix sums to splat_ref_offsets and chunk totals to block_sums.
+        {
+            const pass = this.profiler.beginComputePass("prefix-scan-local", commandEncoder);
+            pass.setPipeline(this.prefixScanLocalPipeline);
+            pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_local"));
+            pass.dispatchWorkgroups(this.workgroups.getLayout("splat-scan").dispatchSize[0]);
+            pass.end();
+        }
 
-        // Stage 2: single-pass decoupled look-back scan of splat_ref_counts -> splat_ref_offsets,
-        // also writing the total ref count + end sentinel.
-        this.runDlbScan(
-            commandEncoder, "scan-dlb-splatrefs", this.scanSplatRefsPipeline,
-            "scan_dlb_splatrefs", GaussianSplatRenderer.SCAN_UNIFORM_STRIDE, sizes.refTiles,
-        );
+        // 2B: block scan - single thread scans block_sums in-place, writes ref_counter + sentinel.
+        {
+            const pass = this.profiler.beginComputePass("prefix-scan-blocks", commandEncoder);
+            pass.setPipeline(this.prefixScanBlocksPipeline);
+            pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_blocks"));
+            pass.dispatchWorkgroups(1);
+            pass.end();
+        }
+
+        // 2C: add block offsets - each workgroup adds its chunk's global offset to its local sums.
+        {
+            const pass = this.profiler.beginComputePass("prefix-scan-add", commandEncoder);
+            pass.setPipeline(this.prefixScanAddPipeline);
+            pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_add"));
+            pass.dispatchWorkgroups(this.workgroups.getLayout("splat-scan").dispatchSize[0]);
+            pass.end();
+        }
 
         // Stage 3: emit one (key, value) pair per (splat, tile) ref -> sort_keys_a / sort_values_a
         {
@@ -1073,7 +1192,7 @@ export class GaussianSplatRenderer implements IRenderer {
         // Stage 4: 8 radix sort passes, 3 sub-stages each (histogram -> scan -> scatter).
         // Even passes read _a -> write _b; odd passes read _b -> write _a.
         // With 8 (even) total passes, sorted data lands back in _a buffers.
-        const rgc = sizes.radixGroupCount;
+        const rgc = this.workgroups.getLayout("radix").dispatchSize[0];
         const stride = GaussianSplatRenderer.RADIX_UNIFORM_STRIDE;
 
         // One slot per pass, each selected at dispatch time via a dynamic offset.
@@ -1083,6 +1202,16 @@ export class GaussianSplatRenderer implements IRenderer {
             radixSlots[p * (stride / 4) + 1] = rgc;
         }
         this.bufferManager.write("radix_uniforms", radixSlots, 0);
+
+        // The digit-major histogram (256 * rgc entries) is scanned the same way every
+        // pass; the recursion levels come from the "histogram-scan" layout (see binningSizes).
+        const scanLevels = sizes.levels;
+        const scanStride = GaussianSplatRenderer.SCAN_UNIFORM_STRIDE;
+        const scanSlots = new Uint32Array(GaussianSplatRenderer.SCAN_MAX_LEVELS * (scanStride / 4));
+        for (let l = 0; l < scanLevels.length; l++) {
+            scanSlots[l * (scanStride / 4)] = scanLevels[l].n;
+        }
+        this.bufferManager.write("scan_uniforms", scanSlots, 0);
 
         for (let p = 0; p < GaussianSplatRenderer.RADIX_PASSES; p++) {
             const slotOffset = p * stride;
@@ -1104,11 +1233,8 @@ export class GaussianSplatRenderer implements IRenderer {
                 pass.end();
             }
 
-            // 4B: single-pass decoupled look-back scan of the histogram -> combined offsets in place
-            this.runDlbScan(
-                commandEncoder, "scan-dlb-histogram", this.scanHistogramPipeline,
-                "scan_dlb_histogram", 0, sizes.histTiles,
-            );
+            // 4B: parallel exclusive scan of the histogram -> combined offsets in place
+            this.scanHistogram(commandEncoder, scanLevels);
 
             // 4C: scatter - place each element at its final sorted position
             {
@@ -1125,7 +1251,7 @@ export class GaussianSplatRenderer implements IRenderer {
             const pass = this.profiler.beginComputePass("identify-tile-ranges", commandEncoder);
             pass.setPipeline(this.identifyTileRangesPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("tile_range_identification"));
-            pass.dispatchWorkgroups(sizes.radixGroupCount);
+            pass.dispatchWorkgroups(rgc);
             pass.end();
         }
 

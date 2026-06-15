@@ -103,7 +103,9 @@ fn main(
     }
 
     // 1. Within-subgroup peer mask: lanes that are active AND share this digit.
-    //    Start from the active lanes, then narrow by matching each of the 8 digit bits.
+    //    Start from the active lanes, then narrow by matching each of the 8 digit
+    //    bits. Excluding inactive lanes up front is essential — INACTIVE (all bits
+    //    set) would otherwise match the real digit-255 group on its low 8 bits.
     var peers: vec4<u32> = subgroupBallot(in_range);
     for (var b = 0u; b < 8u; b = b + 1u) {
         let bit_set = ((d >> b) & 1u) == 1u;
@@ -124,10 +126,8 @@ fn main(
     workgroupBarrier();
 
     var my_prefix = 0u;
-    // Iterate through subgroups one by one. Forces chronological order, ensuring 
-    // subgroup 1 builds upon the counts of subgroup 0, etc.
     for (var s = 0u; s < num_sg; s = s + 1u) {
-        // Only the active subgroup's digit leaders touch digit_base, each at a distinct
+        // Only the active subgroup's leaders touch digit_base, each at a distinct
         // digit slot, so there is no intra-iteration race.
         var base = 0u;
         if (sg_id == s && is_leader && in_range) {
