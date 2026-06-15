@@ -135,11 +135,6 @@ export class GaussianSplatRenderer implements IRenderer {
             name: "radix", problemSize: [maxRefs, 1, 1],
             strategyFn: linear1D, strategyArgs: [GaussianSplatRenderer.RADIX_WORKGROUP_PREFERRED],
         });
-        // Two scan layouts with the same Blelloch geometry but distinct algorithms: the
-        // per-splat prefix scan (Stage 2) and the recursive histogram scan (Stage 4B). They
-        // share strategy `tiled1D(2, 4)` — 2 = Blelloch pairs (see scan_core.wgsl),
-        // structural, not tunable; 4 = u32 bytes per element — so their workgroup/chunk
-        // sizes are identical, but each owns its own problem size.
         this.workgroups.register({
             name: "splat-scan", problemSize: [splatCount, 1, 1],
             strategyFn: tiled1D, strategyArgs: [2, 4],

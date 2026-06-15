@@ -57,8 +57,7 @@ export class WorkgroupManager {
 
     // Recursively apply a registered layout's strategy: level 0 uses `rootProblem`; each
     // subsequent level's problem size is the previous level's dispatch count. Stops when a
-    // level dispatches a single workgroup or `maxLevels` is reached. Pure — runs the strategy
-    // against a local problem size, never touching the stored layout.
+    // level dispatches a single workgroup or `maxLevels` is reached.
     levels(name: string, rootProblem: number, maxLevels = Infinity): { problemSize: number; dispatchSize: number }[] {
         const config = this.strategies.get(name);
         if (!config) throw new Error(`No strategy registered for '${name}'`);
