@@ -36,8 +36,8 @@ body {
 .panel {
   box-sizing: border-box;
   overflow: auto;
-  background-color: #2e2e2e;
-  border: 1px solid #2c2c2c;
+  background-color: #1e1e21;
+  border: 1px solid #1e1e21;
   border-radius: 0.5em;
 }
 
@@ -99,6 +99,7 @@ canvas#gfx-main {
   overflow: hidden;
   color: #eee;
   font-family: monospace;
+  border-radius: 0.5em 0.5em 0 0;
 }
 
 .debug-controls {
@@ -228,6 +229,7 @@ button:disabled {
   padding: 1em;
   color: #eee;
   font-family: monospace;
+  border-radius: 0 0 0.5em 0.5em;
 }
 
 
