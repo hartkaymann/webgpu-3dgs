@@ -118,8 +118,6 @@ canvas#gfx-main {
   align-items: center;
   gap: 0.5em;
   padding: 1em;
-  background-color: #262626;
-  border-bottom: 1px solid #3a3a3a;
   font-family: monospace;
   font-size: 0.9em;
   box-sizing: border-box;
@@ -133,6 +131,11 @@ canvas#gfx-main {
 .controls-container input[type="file"] {
   flex-grow: 1;
   max-width: 100%;
+}
+
+.controls-container input[type="number"] {
+  flex-grow: 1;
+  text-align: right;
 }
 
 .controls-container button {
@@ -153,6 +156,7 @@ canvas#gfx-main {
 
 .input-group {
   display: flex;
+  flex-grow: 1;
   flex-wrap: wrap;
   gap: 0.75em;
   background-color: #2a2a2a;
@@ -185,6 +189,31 @@ canvas#gfx-main {
 
 .toggles {
   flex-wrap: wrap;
+}
+
+.mode-btn-group {
+  display: flex;
+  gap: 0.4em;
+  flex-basis: 100%;
+}
+
+.mode-btn {
+  flex: 1;
+  background-color: #333;
+  color: #888;
+  border: 1px solid #444;
+  padding: 0.35em 0.6em;
+  font-family: monospace;
+  font-size: 0.85em;
+  border-radius: 0.3em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.mode-btn.is-active {
+  background-color: #4a4a4a;
+  color: #eee;
+  border-color: #777;
 }
 
 label:has(input[type="checkbox"]) {

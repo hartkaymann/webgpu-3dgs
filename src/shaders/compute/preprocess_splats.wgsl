@@ -86,10 +86,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let rotation       = splat_rotations[splat_id];
     let color_rgba     = splat_colors[splat_id];
 
+    // Orthographic projection sets viewport.w = 1 (see Camera.getUniformData). The
+    // view→screen map is then linear in (x, y) and independent of view-space z.
+    let is_ortho = camera.viewport.w > 0.5;
+
     let view_pos  = camera.view * vec4<f32>(position_world.xyz, 1.0);
     let clip_pos  = camera.projection * view_pos;
 
-    if (clip_pos.w <= 0.0) { return; }
+    // Behind-camera cull is perspective-only (ortho w == 1 always); the NDC bounds
+    // check below culls near/far + offscreen for both modes.
+    if (!is_ortho && clip_pos.w <= 0.0) { return; }
 
     let ndc = clip_pos.xyz / clip_pos.w;
     if (ndc.x < -1.0 || ndc.x > 1.0 ||
@@ -118,18 +124,27 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let fx = camera.projection[0][0] * viewport_size.x * 0.5;
     let fy = camera.projection[1][1] * viewport_size.y * 0.5;
 
-    // Positive view-space depth (camera looks down -z).
-    let z_cam = -view_pos.z;
-    let inv_z = 1.0 / z_cam;
-    let inv_z2 = inv_z * inv_z;
-
     // Jacobian mapping view-space deltas to screen pixels (x right, y down).
     // The y row is negated to match the flipped screen-y in screen_px above.
-    let j = mat3x3<f32>(
-        vec3<f32>(fx * inv_z,            0.0,                  0.0),
-        vec3<f32>(0.0,                  -fy * inv_z,           0.0),
-        vec3<f32>(fx * view_pos.x * inv_z2, -fy * view_pos.y * inv_z2, 0.0),
-    );
+    var j: mat3x3<f32>;
+    if (is_ortho) {
+        // Orthographic: screen position is linear in (x, y), independent of depth,
+        // so the Jacobian is the constant pixel scale (fx already = 1/halfW * viewport/2).
+        j = mat3x3<f32>(
+            vec3<f32>( fx,  0.0, 0.0),
+            vec3<f32>(0.0, -fy,  0.0),
+            vec3<f32>(0.0,  0.0, 0.0),
+        );
+    } else {
+        // Perspective: 1/z scaling plus a depth-dependent third column.
+        let inv_z  = 1.0 / (-view_pos.z); // positive view-space depth (camera looks down -z)
+        let inv_z2 = inv_z * inv_z;
+        j = mat3x3<f32>(
+            vec3<f32>(fx * inv_z,               0.0,                       0.0),
+            vec3<f32>(0.0,                      -fy * inv_z,               0.0),
+            vec3<f32>(fx * view_pos.x * inv_z2, -fy * view_pos.y * inv_z2, 0.0),
+        );
+    }
 
     let t = j * world_to_view;
     let cov2d_full = t * cov3d * transpose(t);

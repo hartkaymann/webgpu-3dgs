@@ -59,7 +59,7 @@ export class Viewport {
       [10, 10, 10],
       [0, 0, 0],
       [0, 1, 0],
-      Math.PI / 2,
+      0.471239, // 50mm focal length 
       this.canvas.width / this.canvas.height,
       0.1,
       10000
@@ -91,15 +91,15 @@ export class Viewport {
     const zAxisColor: [number, number, number, number] = [0.20, 0.20, 0.90, 0.8];
 
     const gridConfig: GridConfig = {
-      gridSize:       10000.0,
-      gridCellSize:   1.0,
-      majorGridDiv:   10.0,
-      axisLineWidth:  0.02,
+      gridSize: 10000.0,
+      gridCellSize: 1.0,
+      majorGridDiv: 10.0,
+      axisLineWidth: 0.02,
       majorLineWidth: 0.02,
       minorLineWidth: 0.01,
       majorLineColor: [0.36, 0.36, 0.36, 0.8],
       minorLineColor: [0.36, 0.36, 0.39, 0.6],
-      baseColor:      [0.12, 0.12, 0.13, 0.0],
+      baseColor: [0.12, 0.12, 0.13, 0.0],
       xAxisColor,
       zAxisColor,
     };
@@ -258,17 +258,21 @@ export class Viewport {
 
 
   focusCameraOnScene(scene: Scene) {
-    const bounds = this.scene.bounds;
+    const bounds = scene.bounds;
 
-    const centerX = (bounds.min.x + bounds.max.x) / 2;
-    const centerY = (bounds.min.y + bounds.max.y) / 2;
-    const centerZ = (bounds.min.z + bounds.max.z) / 2;
+    const targetCenter = vec3.fromValues(
+      (bounds.min.x + bounds.max.x) / 2,
+      (bounds.min.y + bounds.max.y) / 2,
+      (bounds.min.z + bounds.max.z) / 2
+    );
 
-    // Move the camera back along the Z-axis to fit the whole cloud in view
-    const distance = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z) * 1.5;
+    // Compute bounding radius from diagonal dimensions
+    const dx = bounds.max.x - bounds.min.x;
+    const dy = bounds.max.y - bounds.min.y;
+    const dz = bounds.max.z - bounds.min.z;
+    const boundingRadius = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5;
 
-    this.camera.setPosition(vec3.fromValues(centerX, centerY, centerZ + distance));
-    this.camera.setTarget(vec3.fromValues(centerX, centerY, centerZ));
+    this.camera.focus(targetCenter, boundingRadius);
   }
 
   resize(width: number, height: number) {

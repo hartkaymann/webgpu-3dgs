@@ -35,11 +35,21 @@
         <div class="panel" id="controls-panel">
 
           <div class="controls-container">
-            <label for="file-input">Load File:</label>
-            <input type="file" id="file-input" accept=".laz,.las" />
-          </div>
+            <div class="input-group" id="importControls">
+              <label for="file-input">Load File:</label>
+              <input type="file" id="file-input" accept=".ply" />
+            </div>
 
-          <div id="debug" class="debug-controls">
+            <div class="input-group" id="cameraControls">
+              <label>Near: <input type="number" id="cameraNear" value="0.1" step="any" min="0.001"></label>
+              <label>Far: <input type="number" id="cameraFar" value="1000" step="any" min="0.01"></label>
+              <div class="mode-btn-group">
+                <button id="camPerspective" class="mode-btn is-active">Perspective</button>
+                <button id="camOrthographic" class="mode-btn">Orthographic</button>
+              </div>
+              <label>Focal Length (mm): <input type="number" id="cameraFocalLength" value="50" step="any" min="1"></label>
+              <label>Ortho Size: <input type="number" id="orthoSize" value="10" step="any" min="0.001"></label>
+            </div>
 
             <div class="input-group" id="tileSizeInputs">
               <label>Tile size X (px): <input type="number" id="tileSizeX" value="16" step="1" min="4" max="64"></label>
@@ -58,21 +68,22 @@
             <div class="input-group toggles">
               <label><input type="checkbox" id="renderGrid" checked>Render Grid</label>
               <label><input type="checkbox" id="renderSplats" checked>Render Splats</label>
-              <label><input type="checkbox" id="rebinEveryFrame" title="Force re-binning every frame for profiling purposes. If unchecked, re-binning only occurs when the camera moves or the number of splats changes.">Rebin every frame (profiling)</label>
+              <label><input type="checkbox" id="rebinEveryFrame"
+                  title="Force re-binning every frame for profiling purposes. If unchecked, re-binning only occurs when the camera moves or the number of splats changes.">Rebin
+                every frame (profiling)</label>
             </div>
+          </div>
 
-            <div id="todo-list">
-              <p>TODO:</p>
-              <ul>
-                <li><s>Improve radix-scatter performance</s></li>
-                <li>Change viewport grid scale, add fog</li>
-                <li>Add spherical harmonics</li>
-                <li>Fix Y-Axis orientation</li>
-                <li>Support .splat files</li>
-                <li>Support camera .json files</li>
-              </ul>
-
-            </div>
+          <div id="todo-list">
+            <p>TODO:</p>
+            <ul>
+              <li><s>Improve radix-scatter performance</s></li>
+              <li><s>Change viewport grid scale, add fog</s></li>
+              <li>Add spherical harmonics</li>
+              <li>Coordinate system selection on import</li>
+              <li>Support .splat files</li>
+              <li>Support camera .json files (haven't found out what they do yet)</li>
+            </ul>
           </div>
 
         </div>
@@ -88,7 +99,8 @@
               <thead>
                 <tr style="text-align: left;">
                   <th id="gpu-timer-th-shader">Shader<span id="gpu-timer-arrow-shader"></span></th>
-                  <th id="gpu-timer-th-time" style="text-align: right;">Time (µs)<span id="gpu-timer-arrow-time"></span></th>
+                  <th id="gpu-timer-th-time" style="text-align: right;">Time (µs)<span id="gpu-timer-arrow-time"></span>
+                  </th>
                 </tr>
               </thead>
               <tbody></tbody>

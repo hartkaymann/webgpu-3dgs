@@ -140,6 +140,31 @@ export class Controller {
         this.viewports.splatRenderer.setAlwaysRebin(on);
     }
 
+    setCameraNear(near: number) {
+        this.viewports.camera.near = near;
+        this.viewports.camera.setProjection();
+    }
+
+    setCameraFar(far: number) {
+        this.viewports.camera.far = far;
+        this.viewports.camera.setProjection();
+    }
+
+    // Accepts focal length in mm; converts to vertical FOV using a 24 mm sensor height.
+    setCameraFocalLength(mm: number) {
+        this.viewports.camera.fov = 2 * Math.atan(12 / mm);
+        this.viewports.camera.setProjection();
+    }
+
+    setCameraOrthoSize(size: number) {
+        this.viewports.camera.orthoSize = size;
+        this.viewports.camera.setProjection();
+    }
+
+    setCameraProjectionMode(ortho: "orthographic" | "perspective") {
+        this.viewports.camera.setProjectionMode(ortho);
+    }
+
     calculateFPS(currTime: number) {
         this.frameCount++;
 

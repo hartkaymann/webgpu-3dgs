@@ -25,6 +25,11 @@ export class Camera {
     inverseProjectionMatrix: mat4;
     inverseViewMatrix: mat4;
 
+    projectionMode: "perspective" | "orthographic" = "perspective";
+    // Half-height in world units for the orthographic projection; derived from
+    // fov + distance when switching modes, then updated by zoom().
+    orthoSize = 10.0;
+
     // Monotonic counter bumped on every view/projection change. Renderers compare it
     // against their last-seen value to skip work (e.g. splat binning) while the camera
     // is held still. See GaussianSplatRenderer.render().
@@ -62,6 +67,8 @@ export class Camera {
         this.panSpeed = 0.02;
         this.zoomSpeed = 0.01;
 
+        this.orthoSize = 7.31429 / 2.0;
+
         this.updateView();
         this.setProjection();
     }
@@ -73,9 +80,20 @@ export class Camera {
     }
 
     setProjection() {
-        mat4.perspective(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+        if (this.projectionMode === "orthographic") {
+            const halfH = this.orthoSize;
+            const halfW = halfH * this.aspect;
+            mat4.orthoZO(this.projectionMatrix, -halfW, halfW, -halfH, halfH, this.near, this.far);
+        } else {
+            mat4.perspective(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+        }
         mat4.invert(this.inverseProjectionMatrix, this.projectionMatrix);
         this.version++;
+    }
+
+    setProjectionMode(mode: "perspective" | "orthographic") {
+        this.projectionMode = mode;
+        this.setProjection();
     }
 
     setPosition(position: vec3) {
@@ -151,6 +169,13 @@ export class Camera {
     }
 
     zoom(deltaZoom: number) {
+        if (this.projectionMode === "orthographic") {
+            const zoomAmount = deltaZoom * this.zoomSpeed * (this.orthoSize / 10);
+            this.orthoSize = Math.max(0.001, this.orthoSize - zoomAmount);
+            this.setProjection();
+            return;
+        }
+
         let direction = vec3.create();
         vec3.sub(direction, this.target, this.position);
         vec3.normalize(direction, direction);
@@ -166,6 +191,39 @@ export class Camera {
         vec3.scale(direction, direction, zoomAmount);
         vec3.add(this.position, this.position, direction);
 
+        this.updateView();
+    }
+
+    focus(target: vec3, radius: number, padding: number = 1.05) {
+        const paddedRadius = radius * padding;
+
+        vec3.copy(this.target, target);
+
+        if (this.projectionMode === "orthographic") {
+            if (this.aspect >= 1.0) {
+                this.orthoSize = paddedRadius;
+            } else {
+                this.orthoSize = paddedRadius / this.aspect;
+            }
+
+            const safetyDistance = paddedRadius * 2.0;
+            vec3.scaleAndAdd(this.position, this.target, this.forward, -safetyDistance);
+
+            this.setProjection();
+        } else {
+            const halfFov = this.fov * 0.5;
+
+            let effectiveHalfFov = halfFov;
+            if (this.aspect < 1.0) {
+                effectiveHalfFov = Math.atan(Math.tan(halfFov) * this.aspect);
+            }
+
+            const distance = paddedRadius / Math.sin(effectiveHalfFov);
+
+            vec3.scaleAndAdd(this.position, this.target, this.forward, -distance);
+        }
+
+        this.updateVectors();
         this.updateView();
     }
 
@@ -185,7 +243,8 @@ export class Camera {
         data[68] = viewportWidth;
         data[69] = viewportHeight;
         data[70] = viewportWidth / viewportHeight;
-        data[71] = 0.0;
+        // Projection mode flag for the preprocess shader: 1 = orthographic, 0 = perspective.
+        data[71] = this.projectionMode === "orthographic" ? 1.0 : 0.0;
 
         return data;
     }
