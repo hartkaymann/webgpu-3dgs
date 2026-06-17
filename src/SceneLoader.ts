@@ -1,7 +1,13 @@
-import { Bounds, GaussianSplatData } from "./types/types";
+import { Bounds, GaussianSplatData, PlyHeaderSummary } from "./types/types";
 
 export interface SceneLoaderCallbacks {
     onLoadStart?: () => void;
+
+    // Header-only metadata from peekHeader(), used by the import preview.
+    onHeader?: (summary: PlyHeaderSummary) => void;
+
+    // Body-parse progress in [0, 1], emitted by the worker as it parses splats.
+    onProgress?: (progress: number) => void;
 
     onSplatsLoaded?: (data: {
         splats: GaussianSplatData;
@@ -12,6 +18,14 @@ export interface SceneLoaderCallbacks {
 }
 
 type SceneWorkerMessage =
+    | {
+        type: "header";
+        summary: PlyHeaderSummary;
+    }
+    | {
+        type: "progress";
+        progress: number;
+    }
     | {
         type: "loaded";
         splats: GaussianSplatData;
@@ -36,7 +50,25 @@ export class SceneLoader {
         this.worker = this.createWorker();
     }
 
-    async loadFile(file: File): Promise<void> {
+    // Parse only the header (on the worker) for the import preview. Reads at most
+    // 1 MiB — enough for any Gaussian-splat PLY header — without loading the body.
+    async peekHeader(file: File): Promise<void> {
+        try {
+            const buffer = await file.slice(0, 1024 * 1024).arrayBuffer();
+
+            this.worker.postMessage(
+                {
+                    type: "peek-header",
+                    buffer,
+                },
+                [buffer],
+            );
+        } catch (error) {
+            this.callbacks.onError?.(error);
+        }
+    }
+
+    async loadFile(file: File, transform?: number[]): Promise<void> {
         try {
             this.callbacks.onLoadStart?.();
 
@@ -49,6 +81,7 @@ export class SceneLoader {
                     type: "load-arraybuffer",
                     name: file.name,
                     buffer,
+                    transform,
                 },
                 [buffer],
             );
@@ -56,37 +89,6 @@ export class SceneLoader {
             this.callbacks.onError?.(error);
         }
     }
-
-    loadUrl(url: string): void {
-        try {
-            this.callbacks.onLoadStart?.();
-
-            this.restartWorker();
-
-            this.worker.postMessage({
-                type: "load-url",
-                url,
-            });
-        } catch (error) {
-            this.callbacks.onError?.(error);
-        }
-    }
-
-    startLoadSplats(url: string): void {
-        try {
-            this.callbacks.onLoadStart?.();
-
-            this.restartWorker();
-
-            this.worker.postMessage({
-                type: "load-url",
-                url,
-            });
-        } catch (error) {
-            this.callbacks.onError?.(error);
-        }
-    }
-
 
     shutdown(): void {
         this.worker.postMessage({ type: "shutdown" });
@@ -112,6 +114,14 @@ export class SceneLoader {
             const msg = event.data;
 
             switch (msg.type) {
+                case "header":
+                    this.callbacks.onHeader?.(msg.summary);
+                    break;
+
+                case "progress":
+                    this.callbacks.onProgress?.(msg.progress);
+                    break;
+
                 case "loaded":
                     this.callbacks.onSplatsLoaded?.({
                         splats: msg.splats,

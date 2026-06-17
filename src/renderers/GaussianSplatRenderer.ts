@@ -359,6 +359,15 @@ export class GaussianSplatRenderer implements IRenderer {
         const sizes = this.binningSizes(splatCount);
         this.lastSplatCount = splatCount;
 
+        // init() reuses this renderer instance across scene loads and recreates the GPU
+        // buffers (tile_offsets falls back to its 8-byte seed). Reset the per-load guards
+        // so the first frame forces resizeViewportTargets()/rebin, which regrows
+        // tile_offsets + tileCountStaging, recreates the offscreen targets, and rebuilds
+        // the viewport-dependent bind groups for the new scene. Without this, an unchanged
+        // viewport between loads skips that rebuild (stale targets + undersized tile_offsets).
+        this.lastViewport = [-1, -1];
+        this.lastCameraVersion = -1;
+
         this.bufferManager.initBuffers([
             // ── Uniforms ────────────────────────────────────────────────────────────
             {

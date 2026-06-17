@@ -3,6 +3,7 @@ import { DeviceManager } from "./DeviceManager";
 import SceneWorker from './workers/SceneWorker.ts?worker';
 import { Utils } from "./Utils";
 import { UIController } from "./ui/UIController";
+import { ImportPanel } from "./ui/ImportPanel";
 import { Controller } from "./Controller";
 import { SceneLoader } from "./SceneLoader";
 
@@ -78,14 +79,7 @@ async function main() {
         },
     });
 
-    const input = document.getElementById("file-input") as HTMLInputElement;
-
-    input.addEventListener("change", async () => {
-        const file = input.files?.[0];
-        if (!file) return;
-
-        await sceneLoader.loadFile(file);
-    });
+    new ImportPanel(sceneLoader);
 
     const response = await fetch(`${import.meta.env.BASE_URL}model/files.json`);
     const plyFiles = await response.json();
@@ -93,9 +87,20 @@ async function main() {
         console.warn('No .ply files found.');
         return;
     }
-    const url = new URL(`${import.meta.env.BASE_URL}model/${plyFiles[0]}`, location.origin).toString();
+    const fileName = plyFiles[0];
+    const url = new URL(`${import.meta.env.BASE_URL}model/${fileName}`, location.origin).toString();
     console.log('First PLY file URL:', url);
-    sceneLoader.startLoadSplats(url);
+
+    const fileResponse = await fetch(`${url}?nocache=${Date.now()}`);
+    if (!fileResponse.ok) {
+        console.error(`Failed to load PLY file: ${fileResponse.statusText}`);
+        return;
+    }
+    const file = new File([await fileResponse.blob()], fileName);
+
+    // Initial scene coordinate system: -Y up, +Z forward, +X right.
+    const initialTransform = [1, 0, 0, 0, -1, 0, 0, 0, 1];
+    sceneLoader.loadFile(file, initialTransform);
 }
 
 window.addEventListener("DOMContentLoaded", () => {

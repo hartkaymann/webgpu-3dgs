@@ -36,8 +36,57 @@
 
           <div class="controls-container">
             <div class="input-group" id="importControls">
-              <label for="file-input">Load File:</label>
+              <label for="file-input" class="full-width">Choose File (.ply):</label>
               <input type="file" id="file-input" accept=".ply" />
+
+              <div id="import-info" class="full-width" style="display:none; flex-direction:column; gap:0.2em;">
+                <div>File: <span id="import-file-name">&mdash;</span></div>
+                <div>Size: <span id="import-file-size">&mdash;</span></div>
+                <div>Format: <span id="import-format">&mdash;</span></div>
+                <div>Splats: <span id="import-splat-count">&mdash;</span></div>
+                <div>Spherical Harmonics: <span id="import-sh">&mdash;</span></div>
+              </div>
+
+              <span class="full-width"
+                title="Describe the orientation of the file's axes. Defaults map to our system unchanged.">Source
+                coordinate system:</span>
+
+              <label>File Up:
+                <select id="axis-up">
+                  <option value="+x">+X</option>
+                  <option value="-x">-X</option>
+                  <option value="+y" selected>+Y</option>
+                  <option value="-y">-Y</option>
+                  <option value="+z">+Z</option>
+                  <option value="-z">-Z</option>
+                </select>
+              </label>
+              <label>File Forward:
+                <select id="axis-forward">
+                  <option value="+x">+X</option>
+                  <option value="-x">-X</option>
+                  <option value="+y">+Y</option>
+                  <option value="-y">-Y</option>
+                  <option value="+z" selected>+Z</option>
+                  <option value="-z">-Z</option>
+                </select>
+              </label>
+              <label>File Right:
+                <select id="axis-right">
+                  <option value="+x" selected>+X</option>
+                  <option value="-x">-X</option>
+                  <option value="+y">+Y</option>
+                  <option value="-y">-Y</option>
+                  <option value="+z">+Z</option>
+                  <option value="-z">-Z</option>
+                </select>
+              </label>
+
+              <button id="import-load" class="full-width" disabled>Load</button>
+
+              <div id="import-progress" class="import-progress full-width">
+                <div id="import-progress-bar" class="import-progress-bar"></div>
+              </div>
             </div>
 
             <div class="input-group" id="cameraControls">
@@ -47,7 +96,8 @@
                 <button id="camPerspective" class="mode-btn is-active">Perspective</button>
                 <button id="camOrthographic" class="mode-btn">Orthographic</button>
               </div>
-              <label>Focal Length (mm): <input type="number" id="cameraFocalLength" value="50" step="any" min="1"></label>
+              <label>Focal Length (mm): <input type="number" id="cameraFocalLength" value="50" step="any"
+                  min="1"></label>
               <label>Ortho Size: <input type="number" id="orthoSize" value="10" step="any" min="0.001"></label>
             </div>
 
@@ -68,24 +118,26 @@
             <div class="input-group toggles">
               <label><input type="checkbox" id="renderGrid" checked>Render Grid</label>
               <label><input type="checkbox" id="renderSplats" checked>Render Splats</label>
-              <label title="Apply spherical-harmonics view-dependent color. Enabled only when the loaded file contains SH coefficients."><input
+              <label
+                title="Apply spherical-harmonics view-dependent color. Enabled only when the loaded file contains SH coefficients."><input
                   type="checkbox" id="useSphericalHarmonics" disabled>Spherical Harmonics</label>
               <label><input type="checkbox" id="rebinEveryFrame"
                   title="Force re-binning every frame for profiling purposes. If unchecked, re-binning only occurs when the camera moves or the number of splats changes.">Rebin
                 every frame (profiling)</label>
             </div>
-          </div>
 
-          <div id="todo-list">
-            <p>TODO:</p>
-            <ul>
-              <li><s>Improve radix-scatter performance</s></li>
-              <li><s>Change viewport grid scale, add fog</s></li>
-              <li><s>Add spherical harmonics</s></li>
-              <li>Coordinate system selection on import</li>
-              <li>Support .splat files</li>
-              <li>Dark & light themes</li>
-            </ul>
+            <div class="input-group">
+              <p>TODO:</p>
+              <ul>
+                <li><s>Improve radix-scatter performance</s></li>
+                <li><s>Change viewport grid scale, add fog</s></li>
+                <li><s>Add spherical harmonics</s></li>
+                <li><s>Coordinate system selection on import</s></li>
+                <li>Shader execution flame graph</li>
+                <li>Add support for other file formats</li>
+                <li>Dark & light themes</li>
+              </ul>
+            </div>
           </div>
 
         </div>

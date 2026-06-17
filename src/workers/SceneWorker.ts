@@ -1,11 +1,9 @@
 /// <reference lib="webworker" />
 /// <reference types="vite/client" />
 
-import { Bounds } from "../types/types";
+import { Bounds, PlyFormat, PlyHeaderSummary } from "../types/types";
 
 let shouldShutdown = false;
-
-type PlyFormat = "ascii" | "binary_little_endian" | "binary_big_endian";
 
 type PlyScalarType =
     | "char" | "uchar"
@@ -59,25 +57,22 @@ self.onmessage = async (e: MessageEvent) => {
 
     try {
         switch (msg.type) {
-            case "load-url": {
-                const { url } = msg;
+            case "peek-header": {
+                const { buffer } = msg;
+                const header = parsePlyHeader(buffer);
+                validateGaussianSplatHeader(header);
 
-                await handleLoadAndRespond(async () => {
-                    const response = await fetch(`${url}?nocache=${Date.now()}`);
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to load PLY file: ${response.statusText}`);
-                    }
-
-                    return response.arrayBuffer();
+                postMessage({
+                    type: "header",
+                    summary: summarizePlyHeader(header),
                 });
 
                 return;
             }
 
             case "load-arraybuffer": {
-                const { buffer } = msg;
-                await handleLoadAndRespond(async () => buffer);
+                const { buffer, transform } = msg;
+                await handleLoadAndRespond(async () => buffer, transform);
                 return;
             }
 
@@ -99,7 +94,8 @@ self.onmessage = async (e: MessageEvent) => {
 };
 
 async function handleLoadAndRespond(
-    bufferProvider: () => Promise<ArrayBuffer>
+    bufferProvider: () => Promise<ArrayBuffer>,
+    transform?: number[]
 ): Promise<void> {
     if (shouldShutdown) return;
 
@@ -107,7 +103,7 @@ async function handleLoadAndRespond(
 
     if (shouldShutdown) return;
 
-    const data = parseGaussianSplatPly(buffer);
+    const data = parseGaussianSplatPly(buffer, transform);
 
     if (shouldShutdown) return;
 
@@ -132,7 +128,7 @@ async function handleLoadAndRespond(
     );
 }
 
-function parseGaussianSplatPly(buffer: ArrayBuffer): {
+function parseGaussianSplatPly(buffer: ArrayBuffer, transform?: number[]): {
     splats: GaussianSplatData;
     bounds: Bounds;
 } {
@@ -140,7 +136,7 @@ function parseGaussianSplatPly(buffer: ArrayBuffer): {
     validateGaussianSplatHeader(header);
 
     const reader = createPlyValueReader(buffer, header);
-    return parseGaussianSplatBody(header, reader);
+    return parseGaussianSplatBody(header, reader, buildSplatTransform(transform));
 }
 
 function parsePlyHeader(buffer: ArrayBuffer): PlyHeader {
@@ -334,7 +330,8 @@ function createBinaryValueReader(
 
 function parseGaussianSplatBody(
     header: PlyHeader,
-    reader: PlyValueReader
+    reader: PlyValueReader,
+    transform: SplatTransform | null
 ): {
     splats: GaussianSplatData;
     bounds: Bounds;
@@ -348,6 +345,8 @@ function parseGaussianSplatBody(
 
     const bounds = createEmptyBounds();
 
+    const totalVertices = header.vertexElement.count;
+    let lastReportedPercent = -1;
     let vertexIndex = 0;
 
     for (const element of header.elements) {
@@ -363,8 +362,16 @@ function parseGaussianSplatBody(
             }
 
             if (element.name === "vertex") {
-                writeGaussianSplat(vertexIndex, row, layout, splats, bounds);
+                writeGaussianSplat(vertexIndex, row, layout, splats, bounds, transform);
                 vertexIndex++;
+
+                if (totalVertices > 0) {
+                    const percent = Math.floor((vertexIndex / totalVertices) * 100);
+                    if (percent !== lastReportedPercent) {
+                        lastReportedPercent = percent;
+                        postMessage({ type: "progress", progress: vertexIndex / totalVertices });
+                    }
+                }
             }
         }
     }
@@ -409,13 +416,24 @@ function writeGaussianSplat(
     row: Record<string, number>,
     layout: GaussianPropertyLayout,
     data: GaussianSplatData,
-    bounds: Bounds
+    bounds: Bounds,
+    transform: SplatTransform | null
 ): void {
     const pointOffset = index * 4;
 
-    const x = required(row, "x");
-    const y = required(row, "y");
-    const z = required(row, "z");
+    let x = required(row, "x");
+    let y = required(row, "y");
+    let z = required(row, "z");
+
+    if (transform) {
+        const m = transform.m;
+        const tx = m[0] * x + m[1] * y + m[2] * z;
+        const ty = m[3] * x + m[4] * y + m[5] * z;
+        const tz = m[6] * x + m[7] * y + m[8] * z;
+        x = tx;
+        y = ty;
+        z = tz;
+    }
 
     data.positions[pointOffset + 0] = x;
     data.positions[pointOffset + 1] = y;
@@ -449,10 +467,20 @@ function writeGaussianSplat(
     const length = Math.hypot(r0, r1, r2, r3);
     const invLength = length > 0.0 ? 1.0 / length : 1.0;
 
-    data.rotations[rotationOffset + 0] = r0 * invLength;
-    data.rotations[rotationOffset + 1] = r1 * invLength;
-    data.rotations[rotationOffset + 2] = r2 * invLength;
-    data.rotations[rotationOffset + 3] = r3 * invLength;
+    // Stored quaternion order is (w, x, y, z) — see preprocess_splats.wgsl quat_to_mat3.
+    let qw = r0 * invLength;
+    let qx = r1 * invLength;
+    let qy = r2 * invLength;
+    let qz = r3 * invLength;
+
+    if (transform) {
+        ({ w: qw, x: qx, y: qy, z: qz } = transformQuaternion(transform, qw, qx, qy, qz));
+    }
+
+    data.rotations[rotationOffset + 0] = qw;
+    data.rotations[rotationOffset + 1] = qx;
+    data.rotations[rotationOffset + 2] = qy;
+    data.rotations[rotationOffset + 3] = qz;
 
     if (data.sphericalHarmonics) {
         const shOffset = index * layout.fRestNames.length;
@@ -503,6 +531,149 @@ function inferSphericalHarmonicsDegree(fRestCount: number): number {
     if (fRestCount >= 24) return 2;
     if (fRestCount >= 9) return 1;
     return 0;
+}
+
+function summarizePlyHeader(header: PlyHeader): PlyHeaderSummary {
+    const fRestCount = header.vertexElement.properties.filter((p) =>
+        /^f_rest_\d+$/.test(p.name)
+    ).length;
+
+    return {
+        format: header.format,
+        splatCount: header.vertexElement.count,
+        hasSphericalHarmonics: fRestCount > 0,
+        sphericalHarmonicsDegree: inferSphericalHarmonicsDegree(fRestCount),
+    };
+}
+
+// ── Coordinate-system conversion ─────────────────────────────────────────────────
+// A 3x3 row-major matrix M (an orthonormal signed-axis permutation) mapping the
+// file's coordinate frame into ours. Built from the import dialog's axis dropdowns.
+type SplatTransform = {
+    m: number[]; // length 9, row-major
+};
+
+function buildSplatTransform(transform?: number[]): SplatTransform | null {
+    if (!transform || transform.length !== 9) return null;
+    return { m: transform };
+}
+
+// Rotate a splat's orientation quaternion (w, x, y, z) by M. Positions use M
+// directly; rotations need M·R re-expressed as a quaternion. If M·R is improper
+// (det < 0, i.e. M reflects), one column is negated to recover a proper rotation —
+// valid because a Gaussian ellipsoid is centrally symmetric, so the resulting
+// covariance R·S²·Rᵀ is unchanged.
+function transformQuaternion(
+    transform: SplatTransform,
+    qw: number,
+    qx: number,
+    qy: number,
+    qz: number
+): { w: number; x: number; y: number; z: number } {
+    const r = quatToMat3(qw, qx, qy, qz);
+    const a = mat3Multiply(transform.m, r);
+
+    if (mat3Determinant(a) < 0) {
+        a[2] = -a[2];
+        a[5] = -a[5];
+        a[8] = -a[8];
+    }
+
+    const q = mat3ToQuat(a);
+    const length = Math.hypot(q.w, q.x, q.y, q.z);
+    const invLength = length > 0 ? 1 / length : 1;
+
+    return {
+        w: q.w * invLength,
+        x: q.x * invLength,
+        y: q.y * invLength,
+        z: q.z * invLength,
+    };
+}
+
+// Quaternion (w, x, y, z) → 3x3 row-major rotation matrix. Matches the convention
+// used by quat_to_mat3 in preprocess_splats.wgsl so encode/decode stay consistent.
+function quatToMat3(w: number, x: number, y: number, z: number): number[] {
+    const xx = x * x, yy = y * y, zz = z * z;
+    const xy = x * y, xz = x * z, yz = y * z;
+    const wx = w * x, wy = w * y, wz = w * z;
+
+    return [
+        1 - 2 * (yy + zz), 2 * (xy - wz),     2 * (xz + wy),
+        2 * (xy + wz),     1 - 2 * (xx + zz), 2 * (yz - wx),
+        2 * (xz - wy),     2 * (yz + wx),     1 - 2 * (xx + yy),
+    ];
+}
+
+function mat3Multiply(a: number[], b: number[]): number[] {
+    const out = new Array<number>(9);
+
+    for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+            out[i * 3 + j] =
+                a[i * 3 + 0] * b[0 * 3 + j] +
+                a[i * 3 + 1] * b[1 * 3 + j] +
+                a[i * 3 + 2] * b[2 * 3 + j];
+        }
+    }
+
+    return out;
+}
+
+function mat3Determinant(m: number[]): number {
+    return (
+        m[0] * (m[4] * m[8] - m[5] * m[7]) -
+        m[1] * (m[3] * m[8] - m[5] * m[6]) +
+        m[2] * (m[3] * m[7] - m[4] * m[6])
+    );
+}
+
+// Proper rotation matrix (3x3 row-major) → quaternion (w, x, y, z) via Shepperd's
+// method. Inverse of quatToMat3.
+function mat3ToQuat(m: number[]): { w: number; x: number; y: number; z: number } {
+    const m00 = m[0], m01 = m[1], m02 = m[2];
+    const m10 = m[3], m11 = m[4], m12 = m[5];
+    const m20 = m[6], m21 = m[7], m22 = m[8];
+
+    const trace = m00 + m11 + m22;
+
+    if (trace > 0) {
+        const s = 0.5 / Math.sqrt(trace + 1);
+        return {
+            w: 0.25 / s,
+            x: (m21 - m12) * s,
+            y: (m02 - m20) * s,
+            z: (m10 - m01) * s,
+        };
+    }
+
+    if (m00 > m11 && m00 > m22) {
+        const s = 2 * Math.sqrt(1 + m00 - m11 - m22);
+        return {
+            w: (m21 - m12) / s,
+            x: 0.25 * s,
+            y: (m01 + m10) / s,
+            z: (m02 + m20) / s,
+        };
+    }
+
+    if (m11 > m22) {
+        const s = 2 * Math.sqrt(1 + m11 - m00 - m22);
+        return {
+            w: (m02 - m20) / s,
+            x: (m01 + m10) / s,
+            y: 0.25 * s,
+            z: (m12 + m21) / s,
+        };
+    }
+
+    const s = 2 * Math.sqrt(1 + m22 - m00 - m11);
+    return {
+        w: (m10 - m01) / s,
+        x: (m02 + m20) / s,
+        y: (m12 + m21) / s,
+        z: 0.25 * s,
+    };
 }
 
 function readBinaryScalar(

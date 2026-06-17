@@ -21,6 +21,16 @@ export interface GaussianSplatData {
     splatCount: number;
 }
 
+export type PlyFormat = "ascii" | "binary_little_endian" | "binary_big_endian";
+
+// Header-only metadata for the import preview (no body parsing required).
+export interface PlyHeaderSummary {
+    format: PlyFormat;
+    splatCount: number;
+    hasSphericalHarmonics: boolean;
+    sphericalHarmonicsDegree: number;
+}
+
 export interface AABB {
     pos: vec3,
     size: vec3
