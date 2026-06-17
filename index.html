@@ -68,6 +68,8 @@
             <div class="input-group toggles">
               <label><input type="checkbox" id="renderGrid" checked>Render Grid</label>
               <label><input type="checkbox" id="renderSplats" checked>Render Splats</label>
+              <label title="Apply spherical-harmonics view-dependent color. Enabled only when the loaded file contains SH coefficients."><input
+                  type="checkbox" id="useSphericalHarmonics" disabled>Spherical Harmonics</label>
               <label><input type="checkbox" id="rebinEveryFrame"
                   title="Force re-binning every frame for profiling purposes. If unchecked, re-binning only occurs when the camera moves or the number of splats changes.">Rebin
                 every frame (profiling)</label>
@@ -79,10 +81,10 @@
             <ul>
               <li><s>Improve radix-scatter performance</s></li>
               <li><s>Change viewport grid scale, add fog</s></li>
-              <li>Add spherical harmonics</li>
+              <li><s>Add spherical harmonics</s></li>
               <li>Coordinate system selection on import</li>
               <li>Support .splat files</li>
-              <li>Support camera .json files (haven't found out what they do yet)</li>
+              <li>Dark & light themes</li>
             </ul>
           </div>
 

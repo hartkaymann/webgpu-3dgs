@@ -10,7 +10,7 @@ struct CameraUniforms {
 struct SplatBinningUniforms {
     tile_count: vec2<u32>,
     splat_count: u32,
-    _padding: u32,
+    sh_degree: u32, // 0 = DC color only; 1-3 = evaluate that many SH bands
     inv_tile_size_px: vec2<f32>,
     _padding2: vec2<u32>,
 };
@@ -36,6 +36,10 @@ struct ProjectedSplat {
 @group(1) @binding(1) var<storage, read> splat_scales:     array<vec4<f32>>;
 @group(1) @binding(2) var<storage, read> splat_rotations:  array<vec4<f32>>;
 @group(1) @binding(3) var<storage, read> splat_colors:     array<vec4<f32>>;
+// Higher-order SH coefficients (f_rest), channel-major and flattened across all splats:
+// for splat i, channel c (0=R,1=G,2=B), band coeff k: splat_sh[i*3*N + c*N + k], where
+// N = rest coeffs per channel = (sh_degree+1)^2 - 1. See sh_higher_order below.
+@group(1) @binding(4) var<storage, read> splat_sh:         array<f32>;
 
 @group(2) @binding(0) var<uniform>             uniforms:         SplatBinningUniforms;
 @group(2) @binding(1) var<storage, read_write> projected_splats: array<ProjectedSplat>;
@@ -70,6 +74,71 @@ fn compute_cov3d(scale: vec3<f32>, rotation: vec4<f32>) -> mat3x3<f32> {
     // M = R * S  (scale the rotation columns).
     let m = mat3x3<f32>(r[0] * scale.x, r[1] * scale.y, r[2] * scale.z);
     return m * transpose(m);
+}
+
+// ── Spherical-harmonics view-dependent color ────────────────────────────────────
+// Standard 3DGS SH basis constants (bands 1-3). The degree-0 (DC) term is already
+// baked into splat_colors, so we only evaluate the higher-order contribution here.
+const SH_C1: f32 = 0.4886025119029199;
+
+const SH_C2_0: f32 =  1.0925484305920792;
+const SH_C2_1: f32 = -1.0925484305920792;
+const SH_C2_2: f32 =  0.31539156525252005;
+const SH_C2_3: f32 = -1.0925484305920792;
+const SH_C2_4: f32 =  0.5462742152960396;
+
+const SH_C3_0: f32 = -0.5900435899266435;
+const SH_C3_1: f32 =  2.890611442640554;
+const SH_C3_2: f32 = -0.4570457994644658;
+const SH_C3_3: f32 =  0.3731763325901154;
+const SH_C3_4: f32 = -0.4570457994644658;
+const SH_C3_5: f32 =  1.445305721320277;
+const SH_C3_6: f32 = -0.5900435899266435;
+
+// Fetch the (R,G,B) coefficients for band slot `k` of splat `splat_id`. The buffer is
+// channel-major: `n` rest coeffs per channel, all three channels packed per splat.
+fn sh_coeff(splat_id: u32, n: u32, k: u32) -> vec3<f32> {
+    let base = splat_id * 3u * n;
+    return vec3<f32>(
+        splat_sh[base + k],
+        splat_sh[base + n + k],
+        splat_sh[base + 2u * n + k],
+    );
+}
+
+// Higher-order (bands 1..degree) SH contribution for the given view direction.
+fn sh_higher_order(splat_id: u32, dir: vec3<f32>, degree: u32) -> vec3<f32> {
+    let n = degree * (degree + 2u); // (degree+1)^2 - 1 rest coeffs per channel
+    let x = dir.x; let y = dir.y; let z = dir.z;
+
+    var result =
+        -SH_C1 * y * sh_coeff(splat_id, n, 0u)
+        + SH_C1 * z * sh_coeff(splat_id, n, 1u)
+        - SH_C1 * x * sh_coeff(splat_id, n, 2u);
+
+    if (degree >= 2u) {
+        let xx = x * x; let yy = y * y; let zz = z * z;
+        let xy = x * y; let yz = y * z; let xz = x * z;
+        result +=
+              SH_C2_0 * xy * sh_coeff(splat_id, n, 3u)
+            + SH_C2_1 * yz * sh_coeff(splat_id, n, 4u)
+            + SH_C2_2 * (2.0 * zz - xx - yy) * sh_coeff(splat_id, n, 5u)
+            + SH_C2_3 * xz * sh_coeff(splat_id, n, 6u)
+            + SH_C2_4 * (xx - yy) * sh_coeff(splat_id, n, 7u);
+
+        if (degree >= 3u) {
+            result +=
+                  SH_C3_0 * y * (3.0 * xx - yy) * sh_coeff(splat_id, n, 8u)
+                + SH_C3_1 * xy * z * sh_coeff(splat_id, n, 9u)
+                + SH_C3_2 * y * (4.0 * zz - xx - yy) * sh_coeff(splat_id, n, 10u)
+                + SH_C3_3 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * sh_coeff(splat_id, n, 11u)
+                + SH_C3_4 * x * (4.0 * zz - xx - yy) * sh_coeff(splat_id, n, 12u)
+                + SH_C3_5 * z * (xx - yy) * sh_coeff(splat_id, n, 13u)
+                + SH_C3_6 * x * (xx - 3.0 * yy) * sh_coeff(splat_id, n, 14u);
+        }
+    }
+
+    return result;
 }
 
 @compute @workgroup_size(__WORKGROUP_SIZE__)
@@ -191,7 +260,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     p.radius_px = radius_px;
     p.conic     = conic;
     p.opacity   = color_rgba.a;
-    p.color     = color_rgba.rgb;
+
+    // Add the view-dependent SH contribution on top of the baked DC color when enabled.
+    var color_rgb = color_rgba.rgb;
+    if (uniforms.sh_degree > 0u) {
+        let view_dir = normalize(position_world.xyz - camera.position.xyz);
+        color_rgb = clamp(
+            color_rgb + sh_higher_order(splat_id, view_dir, uniforms.sh_degree),
+            vec3<f32>(0.0),
+            vec3<f32>(1.0),
+        );
+    }
+    p.color     = color_rgb;
     p.valid     = 1u;
     p.tile_min  = tile_min;
     p.tile_max  = tile_max;

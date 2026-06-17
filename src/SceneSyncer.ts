@@ -32,6 +32,12 @@ export class SceneSyncer {
     this.resizeAndWrite("splat_scales", splats.scales);
     this.resizeAndWrite("splat_rotations", splats.rotations);
 
+    // Higher-order SH coefficients (f_rest) for view-dependent color, when present.
+    // Left at its min size otherwise; the preprocess shader skips SH when degree is 0.
+    if (splats.sphericalHarmonics) {
+      this.resizeAndWrite("splat_sh", splats.sphericalHarmonics);
+    }
+
     // Binning/compute buffers (including tile_offsets and the offscreen splat target)
     // are owned and resized by GaussianSplatRenderer, which reacts to the splat count
     // and viewport via its WorkgroupManager layouts.

@@ -62,7 +62,7 @@ export class Viewport {
       0.471239, // 50mm focal length 
       this.canvas.width / this.canvas.height,
       0.1,
-      10000
+      1000
     );
 
     const wrapper = document.getElementById('canvas-wrapper')!;

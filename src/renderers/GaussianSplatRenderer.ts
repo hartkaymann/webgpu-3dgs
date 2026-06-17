@@ -78,6 +78,12 @@ export class GaussianSplatRenderer implements IRenderer {
     // Splat count mapped to full red in the heatmap (tunable; not a true global max).
     private debugRef = 256;
 
+    // View-dependent color via spherical harmonics. Off until a scene with SH loads.
+    private useSphericalHarmonics = false;
+    // Set when a toggle changes a preprocess input while the camera is idle; forces one
+    // rebin so the per-splat colors are recomputed next frame.
+    private forceRebin = false;
+
     // CPU readback of per-tile splat counts (for the DOM tooltip grid).
     private tileCountStaging: GPUBuffer | null = null;
     private tileCountMapPending = false;
@@ -339,6 +345,13 @@ export class GaussianSplatRenderer implements IRenderer {
         this.alwaysRebin = on;
     }
 
+    // Toggle view-dependent SH color. Forces a rebin so the next frame re-runs the
+    // preprocess pass (which evaluates SH per splat) even while the camera is idle.
+    setUseSphericalHarmonics(on: boolean): void {
+        this.useSphericalHarmonics = on;
+        this.forceRebin = true;
+    }
+
     init(format: GPUTextureFormat): void {
         const splatCount = Math.max(1, this.scene.splats?.splatCount ?? 1);
 
@@ -391,6 +404,13 @@ export class GaussianSplatRenderer implements IRenderer {
             {
                 name: "splat_rotations",
                 size: splatCount * 16,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            },
+            {
+                // Higher-order SH coefficients (f_rest), channel-major. Min-sized until a
+                // scene with SH loads, at which point SceneSyncer resizes + uploads it.
+                name: "splat_sh",
+                size: 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             },
 
@@ -490,6 +510,7 @@ export class GaussianSplatRenderer implements IRenderer {
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, // splat_scales
                 { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, // splat_rotations
                 { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, // splat_colors
+                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, // splat_sh (f_rest)
             ],
         });
 
@@ -634,6 +655,7 @@ export class GaussianSplatRenderer implements IRenderer {
                 { binding: 1, resource: { buffer: this.bufferManager.get("splat_scales") } },
                 { binding: 2, resource: { buffer: this.bufferManager.get("splat_rotations") } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("splat_colors") } },
+                { binding: 4, resource: { buffer: this.bufferManager.get("splat_sh") } },
             ],
         });
 
@@ -1088,10 +1110,11 @@ export class GaussianSplatRenderer implements IRenderer {
         // frame is still valid and we just re-composite it below.
         const cameraMoved = frame.cameraVersion !== this.lastCameraVersion;
         this.lastCameraVersion = frame.cameraVersion;
-        const needsRebin = this.alwaysRebin || cameraMoved || splatCountChanged || viewportChanged;
+        const needsRebin = this.alwaysRebin || cameraMoved || splatCountChanged || viewportChanged || this.forceRebin;
 
         if (needsRebin) {
             this.rebin(commandEncoder, splatCount, tilesX, tilesY, viewportWidth, viewportHeight);
+            this.forceRebin = false;
         }
 
         // Stage 6B (debug only): overlay the per-tile splat-count heatmap onto a copy of
@@ -1146,7 +1169,8 @@ export class GaussianSplatRenderer implements IRenderer {
         binU32[0] = tilesX;
         binU32[1] = tilesY;
         binU32[2] = splatCount;
-        binU32[3] = 0;
+        // sh_degree: 0 disables SH (DC color only); otherwise the loaded scene's degree.
+        binU32[3] = this.useSphericalHarmonics ? (this.scene.splats?.sphericalHarmonicsDegree ?? 0) : 0;
         binF32[4] = 1.0 / this.tileSizeX;
         binF32[5] = 1.0 / this.tileSizeY;
         binU32[6] = 0;

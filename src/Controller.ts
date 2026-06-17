@@ -121,6 +121,8 @@ export class Controller {
     async setSplatData(): Promise<void> {
         await this.sync.setSplatData();
         this.canRender.splats = true;
+        // SH presence is only known once a scene has loaded; let the UI default its toggle.
+        this.ui?.refreshSphericalHarmonicsToggle();
     }
 
     // `size` is the tile pixel size (= rasterizer workgroup dims). The renderer clamps
@@ -138,6 +140,16 @@ export class Controller {
     // Force the splat binning/rasterize to run every frame (profiling) vs. only on change.
     setRebinEveryFrame(on: boolean) {
         this.viewports.splatRenderer.setAlwaysRebin(on);
+    }
+
+    // Toggle view-dependent color from spherical harmonics.
+    setUseSphericalHarmonics(on: boolean) {
+        this.viewports.splatRenderer.setUseSphericalHarmonics(on);
+    }
+
+    // Whether the loaded scene carries higher-order SH coefficients (f_rest).
+    hasSphericalHarmonics(): boolean {
+        return (this.scene.splats?.sphericalHarmonics?.length ?? 0) > 0;
     }
 
     setCameraNear(near: number) {

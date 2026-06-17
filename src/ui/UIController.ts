@@ -20,6 +20,7 @@ export class UIController {
         document.getElementById("renderSplats")?.addEventListener("change", this.handleRenderSplatsChanged.bind(this));
         document.getElementById("splatDrawMode")?.addEventListener("change", this.handleSplatDrawModeChanged.bind(this));
         document.getElementById("rebinEveryFrame")?.addEventListener("change", this.handleRebinEveryFrameChanged.bind(this));
+        document.getElementById("useSphericalHarmonics")?.addEventListener("change", this.handleUseSphericalHarmonicsChanged.bind(this));
         document.getElementById("cameraNear")?.addEventListener("change", this.handleCameraParamsChanged.bind(this));
         document.getElementById("cameraFar")?.addEventListener("change", this.handleCameraParamsChanged.bind(this));
         document.getElementById("cameraFocalLength")?.addEventListener("change", this.handleCameraParamsChanged.bind(this));
@@ -32,12 +33,31 @@ export class UIController {
         this.handleRenderSplatsChanged();
         this.handleSplatDrawModeChanged();
         this.handleRebinEveryFrameChanged();
+        this.refreshSphericalHarmonicsToggle();
         this.syncCameraInputsFromCamera();
     }
 
     handleRebinEveryFrameChanged() {
         const checkbox = <HTMLInputElement>document.getElementById("rebinEveryFrame");
         this.controller.setRebinEveryFrame(checkbox.checked);
+    }
+
+    handleUseSphericalHarmonicsChanged() {
+        const checkbox = <HTMLInputElement>document.getElementById("useSphericalHarmonics");
+        this.controller.setUseSphericalHarmonics(checkbox.checked);
+    }
+
+    // Reflect SH availability of the loaded scene: the checkbox is enabled and defaults
+    // to on iff the file carried SH coefficients, and disabled (off) otherwise. The
+    // resulting state is pushed to the renderer so it matches the UI.
+    refreshSphericalHarmonicsToggle() {
+        const checkbox = document.getElementById("useSphericalHarmonics") as HTMLInputElement | null;
+        if (!checkbox) return;
+
+        const hasSH = this.controller.hasSphericalHarmonics();
+        checkbox.disabled = !hasSH;
+        checkbox.checked = hasSH;
+        this.controller.setUseSphericalHarmonics(checkbox.checked);
     }
 
     handleSplatDrawModeChanged() {
