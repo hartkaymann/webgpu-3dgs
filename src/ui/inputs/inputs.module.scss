@@ -1,0 +1,200 @@
+@use "../../styles/variables" as *;
+@use "../../styles/mixins" as *;
+
+// Vertical label + control. The shared layout for number/select fields.
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  font-size: 0.85em;
+  min-width: 100px;
+  max-width: 160px;
+  color: $text;
+  flex: 1 1 auto;
+
+  &.disabled {
+    opacity: 0.5;
+  }
+}
+
+.fullWidth {
+  flex-basis: 100%;
+  max-width: 100%;
+}
+
+.input {
+  background-color: $mode-bg;
+  color: $text;
+  border: 1px solid $mode-border;
+  border-radius: $radius-sm;
+  padding: 0.3em 0.4em;
+  font-family: $mono;
+  font-size: $font-sm;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.input[type="number"] {
+  text-align: right;
+
+  // Firefox
+  -moz-appearance: textfield;
+  appearance: textfield;
+
+  // Chrome, Safari, Edge, Opera
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+.fileInput {
+  flex-grow: 1;
+  max-width: 100%;
+  color: $text;
+  font-family: $mono;
+  font-size: 0.8em;
+}
+
+// ── Checkbox row ────────────────────────────────────────────────────────────
+.checkbox {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  white-space: nowrap;
+  gap: 0.5em;
+  font-size: 0.85em;
+  color: $text;
+
+  &.disabled {
+    opacity: 0.5;
+  }
+}
+
+// ── Vector (multi-number) ───────────────────────────────────────────────────
+.vector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  flex-basis: 100%;
+}
+
+// A titled block: one label above a row/stack of inline fields.
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  flex-basis: 100%;
+}
+
+.blockTitle {
+  display: block;
+  font-size: 0.85em;
+  color: $text;
+}
+
+.inlineRow {
+  display: flex;
+  gap: 0.4em;
+  flex-basis: 100%;
+}
+
+// ── Inline-labelled field ───────────────────────────────────────────────────
+// A label segment + control rendered as one cohesive pill: the wrapper owns the
+// border + rounding, the label sits left (divided off), the control fills right.
+.inlineField {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid $mode-border;
+  border-radius: $radius-sm;
+  background-color: $mode-bg;
+  overflow: hidden;
+  font-size: 0.85em;
+
+  &.disabled {
+    opacity: 0.5;
+  }
+}
+
+.inlineLabel {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0.3em 0.45em;
+  white-space: nowrap;
+  color: $text-dim;
+  border-right: 1px solid $mode-border;
+}
+
+.inlineControl {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: $text;
+  font-family: $mono;
+  font-size: $font-sm;
+  padding: 0.3em 0.4em;
+  box-sizing: border-box;
+}
+
+select.inlineControl {
+  cursor: pointer;
+  // A concrete (non-transparent) background so the native option popup is themed.
+  background-color: $mode-bg;
+  color: $text;
+}
+
+.inlineControl[type="number"] {
+  text-align: right;
+
+  -moz-appearance: textfield;
+  appearance: textfield;
+
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+// ── Mode / toggle button group ──────────────────────────────────────────────
+.modeGroup {
+  display: flex;
+  gap: 0.4em;
+  flex-basis: 100%;
+  padding: 0.25em;
+  background-color: $mode-bg;
+  border: 1px solid $mode-border;
+  border-radius: $radius;
+}
+
+.modeButton {
+  flex: 1;
+  background-color: $mode-bg;
+  color: $text-dim;
+  border: 1px solid $mode-border;
+  padding: 0.35em 0.6em;
+  font-family: $mono;
+  font-size: 0.85em;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &.active {
+    background-color: $mode-bg-active;
+    color: $text;
+    border-color: $mode-border-active;
+  }
+}
+
+// ── Generic button ──────────────────────────────────────────────────────────
+.button {
+  flex-basis: 100%;
+  @include button;
+}

@@ -1,0 +1,65 @@
+@use "../styles/variables" as *;
+@use "../styles/mixins" as *;
+
+.panel {
+  @include panel;
+  flex: 1 1 0; // ~1/4 of the right column
+  min-height: 0;
+  overflow-y: auto;
+  padding: $pad;
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  border-radius: 0 0 $radius $radius;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sectionTitle {
+  margin: 0 0 0.5em;
+  font-size: 0.85em;
+}
+
+// ── Buffers ─────────────────────────────────────────────────────────────────
+.toggle {
+  cursor: pointer;
+  color: $text-accent;
+  margin-top: 4px;
+  user-select: none;
+}
+
+.list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 0.5em;
+  padding-right: 0.5em;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2em 0;
+  border-bottom: 1px solid $border;
+}
+
+// ── Timings ─────────────────────────────────────────────────────────────────
+.timingTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: $mono;
+  color: $text;
+
+  th {
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .timeColumn {
+    text-align: right;
+  }
+}

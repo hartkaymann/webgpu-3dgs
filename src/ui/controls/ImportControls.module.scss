@@ -1,0 +1,36 @@
+@use "../../styles/variables" as *;
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  flex-basis: 100%;
+  font-size: 0.8em;
+  color: $text;
+}
+
+.hint {
+  flex-basis: 100%;
+  font-size: 0.8em;
+  color: $text-dim;
+}
+
+.progress {
+  flex-basis: 100%;
+  height: 8px;
+  background-color: $mode-bg;
+  border: 1px solid $mode-border;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar {
+  height: 100%;
+  width: 0%;
+  background-color: $accent;
+  transition: width 0.12s linear, background-color 0.25s ease;
+
+  &.complete {
+    background-color: $accent-success;
+  }
+}

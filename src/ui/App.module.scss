@@ -1,0 +1,30 @@
+@use "../styles/variables" as *;
+
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 2px;
+}
+
+.workspace {
+  display: flex;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+.rightPanel {
+  width: 360px;
+  min-width: 300px;
+  max-width: 400px;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

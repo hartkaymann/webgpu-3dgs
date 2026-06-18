@@ -1,0 +1,38 @@
+// Shared design tokens for the renderer UI. Imported by component CSS Modules
+// via `@use "../styles/variables" as *;` (adjust depth per file).
+//
+// Themeable tokens are aliases to CSS custom properties so the light/dark theme
+// can switch at runtime; the actual values live in global.scss (`:root` and
+// `:root[data-theme="light"]`). Shape/type tokens stay literal.
+
+// Surfaces
+$page-bg: var(--page-bg);
+$panel-bg: var(--panel-bg);
+$group-bg: var(--group-bg);
+$control-bg: var(--control-bg);
+$control-bg-hover: var(--control-bg-hover);
+$mode-bg: var(--mode-bg);
+$mode-bg-active: var(--mode-bg-active);
+
+// Borders
+$border: var(--border);
+$border-strong: var(--border-strong);
+$mode-border: var(--mode-border);
+$mode-border-active: var(--mode-border-active);
+
+// Text
+$text: var(--text);
+$text-dim: var(--text-dim);
+$text-accent: var(--text-accent);
+
+// Accents
+$accent: var(--accent);
+$accent-success: var(--accent-success);
+
+// Shape / type (compile-time literals)
+$radius: 0.5em;
+$radius-sm: 0.3em;
+$gap: 0.5em;
+$pad: 1em;
+$mono: monospace;
+$font-sm: 0.9em;

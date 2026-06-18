@@ -37,6 +37,14 @@ export class Viewport {
   // Device/Context objects
   clearPassDescriptor: GPURenderPassDescriptor;
 
+  // Canvas sizing. `wrapper` is the display box; the canvas backing store tracks
+  // it (× dpr) unless `manualResolution` pins an explicit internal render size.
+  private wrapper: HTMLElement;
+  private devicePixelRatio: number;
+  private manualResolution: [number, number] | null = null;
+
+  private clearColor: { r: number; g: number; b: number } = { r: 0.12, g: 0.12, b: 0.13 };
+
   // Splat data
   tileSize: [number, number] = [0, 0];
 
@@ -44,7 +52,7 @@ export class Viewport {
   depthTexture: GPUTexture;
   depthView: GPUTextureView;
 
-  constructor(device: GPUDevice, scene: Scene, buffers: BufferManager, bind: BindGroupManager, profiler: Profiler) {
+  constructor(device: GPUDevice, scene: Scene, buffers: BufferManager, bind: BindGroupManager, profiler: Profiler, canvas: HTMLCanvasElement, wrapper: HTMLElement) {
     this.device = device;
     this.scene = scene;
     this.bufferManager = buffers;
@@ -53,7 +61,7 @@ export class Viewport {
 
     this.pipelineManager = new PipelineManager(this.device);
 
-    this.canvas = <HTMLCanvasElement>document.getElementById("gfx-main");
+    this.canvas = canvas;
 
     this.camera = new Camera(
       [10, 10, 10],
@@ -65,23 +73,10 @@ export class Viewport {
       1000
     );
 
-    const wrapper = document.getElementById('canvas-wrapper')!;
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const updateCanvasSize = () => {
-      const width = Math.floor(wrapper.clientWidth * devicePixelRatio);
-      const height = Math.floor(wrapper.clientHeight * devicePixelRatio);
+    this.wrapper = wrapper;
+    this.devicePixelRatio = window.devicePixelRatio || 1;
 
-      if (this.canvas.width !== width || this.canvas.height !== height) {
-        this.canvas.width = width;
-        this.canvas.height = height;
-        this.resize(width, height);
-      }
-
-      this.camera.aspect = width / height;
-      this.camera.setProjection();
-    };
-
-    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    const resizeObserver = new ResizeObserver(() => this.updateCanvasSize());
     resizeObserver.observe(wrapper);
 
     this.input = new InputHandler(this.canvas, this.camera);
@@ -178,7 +173,7 @@ export class Viewport {
           view: undefined,
           loadOp: "clear",
           storeOp: "store",
-          clearValue: { r: 0.12, g: 0.12, b: 0.13, a: 1.0 },
+          clearValue: { ...this.clearColor, a: 1.0 },
         },
       ],
       depthStencilAttachment: { view: this.depthView, depthClearValue: 1.0, depthLoadOp: "clear", depthStoreOp: "store" },
@@ -273,6 +268,43 @@ export class Viewport {
     const boundingRadius = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5;
 
     this.camera.focus(targetCenter, boundingRadius);
+  }
+
+  // Size the canvas backing store and keep the camera's aspect matched to the
+  // displayed wrapper. The backing store follows the wrapper (× dpr) unless an
+  // internal resolution is pinned. Aspect always uses the display box so geometry
+  // stays undistorted when the browser upscales a lower-res backing store.
+  private updateCanvasSize() {
+    const dispW = Math.max(1, this.wrapper.clientWidth);
+    const dispH = Math.max(1, this.wrapper.clientHeight);
+
+    const [width, height] = this.manualResolution ?? [
+      Math.floor(dispW * this.devicePixelRatio),
+      Math.floor(dispH * this.devicePixelRatio),
+    ];
+
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+      this.resize(width, height);
+    }
+
+    this.camera.aspect = dispW / dispH;
+    this.camera.setProjection();
+  }
+
+  // Pin the internal render resolution (canvas backing store). The displayed
+  // canvas keeps filling the wrapper, so the GPU renders at this size and the
+  // browser scales the result. Triggers the usual context/depth rebuild.
+  setInternalResolution(width: number, height: number) {
+    this.manualResolution = [Math.max(1, Math.floor(width)), Math.max(1, Math.floor(height))];
+    this.updateCanvasSize();
+  }
+
+  setClearColor(r: number, g: number, b: number) {
+    this.clearColor = { r, g, b };
+    if (!this.clearPassDescriptor) return;
+    (this.clearPassDescriptor.colorAttachments as GPURenderPassColorAttachment[])[0].clearValue = { r, g, b, a: 1.0 };
   }
 
   resize(width: number, height: number) {

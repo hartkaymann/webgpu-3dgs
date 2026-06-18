@@ -1,0 +1,46 @@
+@use "variables" as *;
+
+// Rounded dark panel surface shared by the controls and profiler panels.
+@mixin panel {
+  box-sizing: border-box;
+  overflow: auto;
+  background-color: $panel-bg;
+  border: 1px solid $panel-bg;
+  border-radius: $radius;
+  color: $text;
+  font-family: $mono;
+}
+
+// The grey, bordered grouping box used around each cluster of controls.
+@mixin group {
+  display: flex;
+  flex-grow: 1;
+  flex-wrap: wrap;
+  gap: 0.75em;
+  background-color: $group-bg;
+  padding: 0.75em;
+  border-radius: $radius;
+  border: 1px solid $border;
+}
+
+// Standard button look (controls + mode buttons share most of this).
+@mixin button {
+  background-color: $control-bg;
+  color: $text;
+  border: 1px solid $border-strong;
+  padding: 0.4em 0.8em;
+  font-family: $mono;
+  font-size: $font-sm;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:hover:enabled {
+    background-color: $control-bg-hover;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}

@@ -5,7 +5,7 @@ import { Profiler } from "./Profiler";
 import { Scene } from "./Scene";
 import { SceneSyncer } from "./SceneSyncer";
 import { WebGPUContext } from "./types/types";
-import { UIController } from "./ui/UIController";
+import { TileDebugOverlay } from "./ui/TileDebugOverlay";
 import { Viewport } from "./Viewport";
 
 export interface RenderPlan {
@@ -28,7 +28,12 @@ export class Controller {
 
     viewports: Viewport;
 
-    ui: UIController | null = null;
+    private tileOverlay: TileDebugOverlay;
+
+    // Renderer → UI callbacks. The renderer never imports React; React (or any
+    // other consumer) registers these to observe renderer state.
+    onFps: ((fps: number) => void) | null = null;
+    onSceneReady: (() => void) | null = null;
 
     bufferManager: BufferManager;
     bindGroupsManager: BindGroupManager;
@@ -55,7 +60,7 @@ export class Controller {
     private animationFrameId: number | null = null;
     private running = false;
 
-    constructor(gpu: WebGPUContext) {
+    constructor(gpu: WebGPUContext, canvas: HTMLCanvasElement, wrapper: HTMLElement, overlayHost: HTMLElement) {
         this.gpu = gpu;
 
         this.bufferManager = new BufferManager(this.gpu.device);
@@ -67,7 +72,9 @@ export class Controller {
         this.scene = new Scene();
         this.sync = new SceneSyncer(this.scene, this.gpu.device, this.bufferManager, this.bindGroupsManager);
 
-        this.viewports = new Viewport(this.gpu.device, this.scene, this.bufferManager, this.bindGroupsManager, this.profiler);
+        this.viewports = new Viewport(this.gpu.device, this.scene, this.bufferManager, this.bindGroupsManager, this.profiler, canvas, wrapper);
+
+        this.tileOverlay = new TileDebugOverlay(canvas, this.viewports.splatRenderer, overlayHost);
     }
 
     async init(): Promise<void> {
@@ -122,7 +129,7 @@ export class Controller {
         await this.sync.setSplatData();
         this.canRender.splats = true;
         // SH presence is only known once a scene has loaded; let the UI default its toggle.
-        this.ui?.refreshSphericalHarmonicsToggle();
+        this.onSceneReady?.();
     }
 
     // `size` is the tile pixel size (= rasterizer workgroup dims). The renderer clamps
@@ -132,9 +139,26 @@ export class Controller {
         return this.viewports.splatRenderer.setTileSize(size[0], size[1]);
     }
 
-    // Splat draw mode: 0 = normal, 1 = splats-per-tile heatmap overlay.
+    // Internal render resolution (canvas backing store). The displayed canvas is
+    // scaled to fit; lower values trade quality for performance.
+    setInternalResolution(width: number, height: number) {
+        this.viewports.setInternalResolution(width, height);
+    }
+
+    getInternalResolution(): [number, number] {
+        return [this.viewports.canvas.width, this.viewports.canvas.height];
+    }
+
+    // Viewport (canvas clear) background colour, components in [0, 1].
+    setBackgroundColor(r: number, g: number, b: number) {
+        this.viewports.setClearColor(r, g, b);
+    }
+
+    // Splat draw mode: 0 = normal, 1 = splats-per-tile heatmap overlay. The
+    // per-tile DOM inspector is only active in mode 1.
     setSplatDrawMode(mode: number) {
         this.viewports.splatRenderer.setDebugMode(mode);
+        this.tileOverlay.setActive(mode === 1);
     }
 
     // Force the splat binning/rasterize to run every frame (profiling) vs. only on change.
@@ -187,11 +211,8 @@ export class Controller {
             this.fps = this.frameCount / (elapsedTime / 1000);
             this.frameCount = 0;
             this.fpsLastTime = currTime;
-        }
 
-        const fpsLabel = document.getElementById("fps");
-        if (fpsLabel) {
-            fpsLabel.innerText = this.fps.toFixed(2);
+            this.onFps?.(this.fps);
         }
     }
 

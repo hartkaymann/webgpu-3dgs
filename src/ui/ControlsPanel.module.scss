@@ -1,0 +1,47 @@
+@use "../styles/variables" as *;
+@use "../styles/mixins" as *;
+
+.panel {
+  @include panel;
+  flex: 3 1 0; // ~3/4 of the right column
+  min-height: 0;
+  overflow: hidden; // the inner container scrolls
+  display: flex;
+  flex-direction: column;
+  border-radius: $radius $radius 0 0;
+}
+
+.container {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start; // pack wrapped rows at the top instead of stretching
+  gap: $gap;
+  padding: $pad;
+  font-family: $mono;
+  font-size: $font-sm;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.group {
+  @include group;
+}
+
+.groupTitle {
+  flex-basis: 100%;
+  margin: 0;
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid $border;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: $text-dim;
+}
+
+.toggles {
+  flex-direction: column;
+}
