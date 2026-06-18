@@ -1,0 +1,107 @@
+@use "variables" as *;
+
+// ── Theme palettes ──────────────────────────────────────────────────────────
+// Dark is the default; light is opted into via data-theme on <html>. The SCSS
+// tokens in _variables.scss alias these custom properties, so component styles
+// pick up the active theme automatically.
+:root {
+  --page-bg: #e4e4e4;
+  --panel-bg: #1f1f21;
+  --group-bg: #2a2a2a;
+  --control-bg: #444;
+  --control-bg-hover: #555;
+  --mode-bg: #333;
+  --mode-bg-active: #4a4a4a;
+
+  --border: #3a3a3a;
+  --border-strong: #666;
+  --mode-border: #444;
+  --mode-border-active: #777;
+
+  --text: #eee;
+  --text-dim: #888;
+  --text-accent: #0ff;
+
+  --accent: #2f6fed;
+  --accent-success: #2ecc71;
+}
+
+:root[data-theme="light"] {
+  --page-bg: #cbcbcb;
+  --panel-bg: #e2e1e4;
+  --group-bg: #fefefe;
+  --control-bg: #e6e6e6;
+  --control-bg-hover: #dadada;
+  --mode-bg: #f1f1f1;
+  --mode-bg-active: #d8d8dc;
+
+  --border: #cccccc;
+  --border-strong: #b0b0b0;
+  --mode-border: #cccccc;
+  --mode-border-active: #9a9aa0;
+
+  --text: #1a1a1a;
+  --text-dim: #6a6a6a;
+  --text-accent: #0a7ea4;
+
+  --accent: #2f6fed;
+  --accent-success: #2ecc71;
+}
+
+// Page reset / no-scroll shell.
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: $page-bg;
+  color: $text;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+button {
+  font-family: $mono;
+}
+
+// ── Toasts ────────────────────────────────────────────────────────────────
+// Kept global because Utils.showToast creates these nodes imperatively.
+#toast-container {
+  position: fixed;
+  top: 1em;
+  left: 50%;
+  transform: translate(-50%, 0);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast {
+  background-color: #222;
+  color: #fff;
+  font-family: $mono;
+  font-size: 0.85em;
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  border: 1px solid #555;
+  opacity: 0.95;
+  animation: fadeOut 5s forwards;
+  pointer-events: auto;
+}
+
+.toast.error { border-left: 4px solid #ff4c4c; }
+.toast.warn  { border-left: 4px solid #ffaa00; }
+.toast.info  { border-left: 4px solid #036afe; }
+
+@keyframes fadeOut {
+  0%   { opacity: 0.95; }
+  80%  { opacity: 0.95; }
+  100% { opacity: 0; }
+}

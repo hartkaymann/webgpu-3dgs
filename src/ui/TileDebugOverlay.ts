@@ -19,16 +19,13 @@ export class TileDebugOverlay {
     private readonly onMouseMove = (e: MouseEvent) => this.handleMouseMove(e);
     private readonly onMouseLeave = () => this.hideHover();
 
-    constructor(canvas: HTMLCanvasElement, renderer: GaussianSplatRenderer) {
+    constructor(canvas: HTMLCanvasElement, renderer: GaussianSplatRenderer, host?: HTMLElement) {
         this.canvas = canvas;
         this.renderer = renderer;
 
-        let root = document.getElementById("tileGridOverlay") as HTMLDivElement | null;
-        if (!root) {
-            root = document.createElement("div");
-            root.id = "tileGridOverlay";
-            (canvas.parentElement ?? document.body).appendChild(root);
-        }
+        const root = document.createElement("div");
+        root.id = "tileGridOverlay";
+        (host ?? canvas.parentElement ?? document.body).appendChild(root);
         this.root = root;
         Object.assign(this.root.style, {
             position: "absolute", display: "none", pointerEvents: "none", overflow: "hidden", zIndex: "5",

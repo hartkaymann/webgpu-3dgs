@@ -16,13 +16,15 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    "jsx": "react-jsx",
     /* Linting */
     "strict": false,
     "noFallthroughCasesInSwitch": true,
     "types": ["@webgpu/types", "vite/client"]
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "src/**/*.tsx"
   ],
   "exclude": [
     "**/node_modules/**",

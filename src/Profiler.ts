@@ -1,8 +1,5 @@
 import { BufferManager } from "./BufferManager";
 
-type TimingSortKey = "order" | "time";
-type TimingSortDir = "asc" | "desc";
-
 export class Profiler {
 
     device: GPUDevice;
@@ -40,10 +37,10 @@ export class Profiler {
     private flushIntervalMs = 1000;
     private lastFlush = 0;
 
-    // Panel sort state.
-    private sortKey: TimingSortKey = "order";
-    private sortDir: TimingSortDir = "asc";
-    private timingControlsInit = false;
+    // Renderer → UI callbacks. The profiler computes data and notifies; the
+    // consumer (React) reads the getters below and renders. No DOM access here.
+    onBuffersChanged: (() => void) | null = null;
+    onTimingsChanged: (() => void) | null = null;
 
     gpuMemoryMax: number = 0;
     gpuMemoryUsage: number = 0;
@@ -84,8 +81,8 @@ export class Profiler {
     setBufferManager(manager: BufferManager) {
         this.bufferManager = manager;
 
-        manager.onResize((name, newSize) => {
-            this.updateBufferSizePanel();
+        manager.onResize(() => {
+            this.onBuffersChanged?.();
         });
 
         if (this.canTimestamp) {
@@ -247,113 +244,17 @@ export class Profiler {
         this.accSum.clear();
         this.accCount.clear();
 
-        this.updateShaderTimingPanel();
+        this.onTimingsChanged?.();
     }
 
-    private formatBufferSize(bytes: number): string {
-        if (bytes < 1000) {
-            return `${bytes} byte${bytes === 1 ? "" : "s"}`;
-        }
-
-        const sizeKB = bytes / 1024;
-
-        if (sizeKB < 1000) {
-            return `${sizeKB.toFixed(2)} KB`;
-        }
-
-        const sizeMB = sizeKB / 1024;
-        return `${sizeMB.toFixed(2)} MB`;
+    // Averaged shader timings (µs) in execution order. Sorting/formatting is the
+    // consumer's concern; getExecutionOrder() exposes the encode order.
+    getTimings(): { label: string; time: number }[] {
+        return [...this.timings.entries()].map(([label, time]) => ({ label, time }));
     }
 
-    updateBufferSizePanel() {
-        const gpuMemEl = document.getElementById("gpu-mem")!;
-        const listEl = document.getElementById("buffer-list")!;
-        const toggleEl = document.getElementById("buffer-toggle")!;
-
-        gpuMemEl.textContent = `Buffers Total: ${this.formatBufferSize(this.getTotalBufferSize())}`;
-
-        const buffers = this.getBuffersSortedBySize();
-        listEl.innerHTML = buffers.map(buf => {
-            const formattedSize = this.formatBufferSize(buf.size);
-            return `<div class="buffer-row"><span>${buf.name}</span><span>${formattedSize}</span></div>`;
-        }).join("");
-
-        // Toggle logic
-        if (!toggleEl.dataset.initialized) {
-            let isExpanded = false;
-            toggleEl.onclick = () => {
-                isExpanded = !isExpanded;
-                listEl.style.display = isExpanded ? "block" : "none";
-                toggleEl.innerHTML = isExpanded ? "&#x25BC; Hide Buffers" : "&#x25B6; Show Buffers";
-            };
-            toggleEl.dataset.initialized = "true";
-        }
-    }
-
-    updateShaderTimingPanel() {
-        const tableBody = document.querySelector("#gpu-timer-table tbody");
-        if (!tableBody) return;
-
-        this.initTimingPanelControls();
-
-        const entries = [...this.timings.entries()];
-        if (this.sortKey === "time") {
-            entries.sort((a, b) => this.sortDir === "desc" ? b[1] - a[1] : a[1] - b[1]);
-        } else {
-            // Execution order: index of first appearance in the sampled frame.
-            const orderIndex = new Map(this.executionOrder.map((label, i) => [label, i]));
-            entries.sort((a, b) =>
-                (orderIndex.get(a[0]) ?? Number.MAX_SAFE_INTEGER) -
-                (orderIndex.get(b[0]) ?? Number.MAX_SAFE_INTEGER));
-            if (this.sortDir === "desc") entries.reverse();
-        }
-
-        tableBody.innerHTML = entries
-            .map(([label, time]) => `<tr>
-                    <td>${label}</td>
-                    <td style="text-align: right;">${time.toFixed(2)}</td>
-                </tr>`)
-            .join("");
-
-        this.updateTimingSortIndicators();
-    }
-
-    // Wire the header cells once so clicking toggles the sort. "Shader" sorts by
-    // execution order, "Time" by elapsed time; clicking the active column again
-    // reverses its direction.
-    private initTimingPanelControls() {
-        if (this.timingControlsInit) return;
-
-        const shaderTh = document.getElementById("gpu-timer-th-shader");
-        const timeTh = document.getElementById("gpu-timer-th-time");
-        if (!shaderTh || !timeTh) return;
-
-        const applySort = (key: TimingSortKey, defaultDir: TimingSortDir) => {
-            if (this.sortKey === key) {
-                this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
-            } else {
-                this.sortKey = key;
-                this.sortDir = defaultDir;
-            }
-            this.updateShaderTimingPanel();
-        };
-
-        shaderTh.style.cursor = "pointer";
-        timeTh.style.cursor = "pointer";
-        shaderTh.title = "Sort by execution order (click again to reverse)";
-        timeTh.title = "Sort by time, descending (click again to reverse)";
-        shaderTh.onclick = () => applySort("order", "asc");
-        timeTh.onclick = () => applySort("time", "desc");
-
-        this.timingControlsInit = true;
-    }
-
-    private updateTimingSortIndicators() {
-        const arrow = this.sortDir === "asc" ? " ▲" : " ▼";
-        const shaderArrow = document.getElementById("gpu-timer-arrow-shader");
-        const timeArrow = document.getElementById("gpu-timer-arrow-time");
-        if (shaderArrow) shaderArrow.textContent = this.sortKey === "order" ? arrow : "";
-        if (timeArrow) timeArrow.textContent = this.sortKey === "time" ? arrow : "";
+    getExecutionOrder(): string[] {
+        return [...this.executionOrder];
     }
 
 }
