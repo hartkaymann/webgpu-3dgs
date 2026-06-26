@@ -301,6 +301,22 @@ export class Viewport {
     this.updateCanvasSize();
   }
 
+  // When `on`, drop any pinned resolution so the backing store tracks the
+  // wrapper size (× dpr) again, resizing immediately to match. When `off`, pin
+  // the current canvas dimensions so it stops following the wrapper.
+  setAutoResolution(on: boolean) {
+    if (on) {
+      this.manualResolution = null;
+      this.updateCanvasSize();
+    } else {
+      this.manualResolution = [this.canvas.width, this.canvas.height];
+    }
+  }
+
+  isAutoResolution(): boolean {
+    return this.manualResolution === null;
+  }
+
   setClearColor(r: number, g: number, b: number) {
     this.clearColor = { r, g, b };
     if (!this.clearPassDescriptor) return;

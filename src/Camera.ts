@@ -142,6 +142,23 @@ export class Camera {
         this.updateView();
     }
 
+    // Orbit the camera around the world Y axis passing through the current target,
+    // preserving the current radius. `angle` is in radians; positive spins one way.
+    // Used for auto-rotation; mouse rotate/pan still apply on top since they mutate
+    // position/target directly.
+    orbitY(angle: number) {
+        const yawQuat = quat.create();
+        quat.setAxisAngle(yawQuat, vec3.fromValues(0, 1, 0), angle);
+
+        const offset = vec3.create();
+        vec3.sub(offset, this.position, this.target);
+        vec3.transformQuat(offset, offset, yawQuat);
+        vec3.add(this.position, this.target, offset);
+
+        this.updateVectors();
+        this.updateView();
+    }
+
     pan(deltaX: number, deltaY: number) {
         const panX = -deltaX * this.panSpeed;
         const panY = deltaY * this.panSpeed;

@@ -3,6 +3,8 @@ import { useRenderer } from "../RendererContext";
 import { NumberInput } from "../inputs/NumberInput";
 import { VectorInput } from "../inputs/VectorInput";
 import { ToggleButtonGroup } from "../inputs/ToggleButtonGroup";
+import { Checkbox } from "../inputs/Checkbox";
+import inputStyles from "../inputs/inputs.module.scss";
 
 type ProjectionMode = "perspective" | "orthographic";
 
@@ -19,6 +21,8 @@ export function CameraControls() {
     const [focal, setFocal] = useState(() => focalFromFov(camera.fov));
     const [orthoSize, setOrthoSize] = useState(camera.orthoSize);
     const [mode, setMode] = useState<ProjectionMode>(camera.projectionMode);
+    const [autoRotate, setAutoRotate] = useState(false);
+    const [autoRotateSpeed, setAutoRotateSpeed] = useState(0.5);
 
     const commitClip = (values: number[]) => {
         const [n, f] = values;
@@ -34,6 +38,14 @@ export function CameraControls() {
     const commitMode = (next: ProjectionMode) => {
         controller.setCameraProjectionMode(next);
         setMode(next);
+    };
+    const toggleAutoRotate = (value: boolean) => {
+        controller.setCameraAutoRotate(value);
+        setAutoRotate(value);
+    };
+    const commitAutoRotateSpeed = (value: number) => {
+        controller.setCameraAutoRotateSpeed(value);
+        setAutoRotateSpeed(value);
     };
 
     return (
@@ -57,6 +69,22 @@ export function CameraControls() {
             />
             <NumberInput label="Focal Length (mm):" value={focal} min={1} onCommit={commitFocal} disabled={mode === "orthographic"} />
             <NumberInput label="Ortho Size:" value={orthoSize} min={0.001} onCommit={commitOrthoSize} disabled={mode === "perspective"} />
+            <hr className={inputStyles.divider} />
+            <div className={inputStyles.block}>
+                <Checkbox
+                    label="Auto-rotate"
+                    checked={autoRotate}
+                    onChange={toggleAutoRotate}
+                    title="Continuously orbit the camera around the target's Y axis."
+                />
+                <NumberInput
+                    label="Rotate Speed (rad/s):"
+                    value={autoRotateSpeed}
+                    step={0.1}
+                    onCommit={commitAutoRotateSpeed}
+                    disabled={!autoRotate}
+                />
+            </div>
         </>
     );
 }

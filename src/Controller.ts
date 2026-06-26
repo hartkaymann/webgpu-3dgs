@@ -51,6 +51,11 @@ export class Controller {
         gizmo: true
     }
 
+    // Continuous orbit of the camera around the target's world Y axis.
+    // Speed is in radians per second; applied each frame scaled by delta time.
+    private autoRotate = false;
+    private autoRotateSpeed = 0.5;
+
     private prevTime = 0;
     private timeAccumulator = 0;
     private readonly timeStep = 1 / 60;
@@ -117,6 +122,10 @@ export class Controller {
 
             this.calculateFPS(currTime);
 
+            if (this.autoRotate) {
+                this.viewports.camera.orbitY(this.autoRotateSpeed * (deltaTime / 1000));
+            }
+
             // Parameter useless right now
             const plan = this.getRenderPlanFor(this.viewports);
             this.viewports.runRenderPass(plan);
@@ -147,6 +156,15 @@ export class Controller {
 
     getInternalResolution(): [number, number] {
         return [this.viewports.canvas.width, this.viewports.canvas.height];
+    }
+
+    // Auto-track the wrapper size for the internal resolution (vs. a pinned size).
+    setAutoResolution(on: boolean) {
+        this.viewports.setAutoResolution(on);
+    }
+
+    isAutoResolution(): boolean {
+        return this.viewports.isAutoResolution();
     }
 
     // Viewport (canvas clear) background colour, components in [0, 1].
@@ -199,6 +217,16 @@ export class Controller {
 
     setCameraProjectionMode(ortho: "orthographic" | "perspective") {
         this.viewports.camera.setProjectionMode(ortho);
+    }
+
+    // Toggle continuous orbit of the camera around the target's Y axis.
+    setCameraAutoRotate(on: boolean) {
+        this.autoRotate = on;
+    }
+
+    // Orbit angular speed in radians per second.
+    setCameraAutoRotateSpeed(speed: number) {
+        this.autoRotateSpeed = speed;
     }
 
     calculateFPS(currTime: number) {
