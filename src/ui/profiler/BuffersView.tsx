@@ -1,11 +1,35 @@
 import { useEffect, useState } from "react";
 import { useRenderer } from "../RendererContext";
+import { SortableColumn, SortableTable } from "./SortableTable";
 import styles from "../ProfilerPanel.module.scss";
+
+interface BufferRow {
+    name: string;
+    size: number;
+}
+
+const COLUMNS: SortableColumn<BufferRow>[] = [
+    {
+        key: "name",
+        label: "Buffer",
+        defaultDir: "asc",
+        sortValue: (row) => row.name,
+        render: (row) => row.name,
+    },
+    {
+        key: "size",
+        label: "Size",
+        align: "right",
+        width: "7em",
+        defaultDir: "desc",
+        sortValue: (row) => row.size,
+        render: (row) => formatBufferSize(row.size),
+    },
+];
 
 export function BuffersView() {
     const { profiler } = useRenderer();
     const [, forceUpdate] = useState(0);
-    const [expanded, setExpanded] = useState(false);
 
     // Re-read profiler data whenever a buffer is (re)allocated.
     useEffect(() => {
@@ -16,25 +40,23 @@ export function BuffersView() {
     }, [profiler]);
 
     const total = profiler.getTotalBufferSize();
-    const buffers = profiler.getBuffersSortedBySize();
+    const buffers = profiler.getBuffers();
 
     return (
-        <div className={styles.section}>
-            <div>Buffers Total: {formatBufferSize(total)}</div>
-            <div className={styles.toggle} onClick={() => setExpanded((v) => !v)}>
-                {expanded ? "▼ Hide Buffers" : "▶ Show Buffers"}
+        <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>Buffers</h3>
+            <div className={styles.totalRow}>
+                <span>Total</span>
+                <span>{formatBufferSize(total)}</span>
             </div>
-            {expanded && (
-                <div className={styles.list}>
-                    {buffers.map((buffer) => (
-                        <div className={styles.row} key={buffer.name}>
-                            <span>{buffer.name}</span>
-                            <span>{formatBufferSize(buffer.size)}</span>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
+            <SortableTable
+                columns={COLUMNS}
+                rows={buffers}
+                getRowKey={(row) => row.name}
+                initialSortKey="size"
+                initialSortDir="desc"
+            />
+        </section>
     );
 }
 

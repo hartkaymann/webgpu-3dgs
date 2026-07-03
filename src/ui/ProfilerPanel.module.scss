@@ -5,61 +5,45 @@
   @include panel;
   flex: 1 1 0; // ~1/4 of the right column
   min-height: 0;
-  overflow-y: auto;
-  padding: $pad;
+  overflow: hidden; // the inner container scrolls
   display: flex;
   flex-direction: column;
-  gap: 1em;
   border-radius: 0 0 $radius $radius;
 }
 
-.section {
+.container {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  gap: 1em;
+  padding: $pad;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.section {
+  @include group;
+  flex-direction: column;
+  flex-grow: 0;
+  flex-wrap: nowrap;
 }
 
 .sectionTitle {
-  margin: 0 0 0.5em;
-  font-size: 0.85em;
+  margin: 0;
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid $border;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: $text-dim;
 }
 
-// ── Buffers ─────────────────────────────────────────────────────────────────
-.toggle {
-  cursor: pointer;
-  color: $text-accent;
-  margin-top: 4px;
-  user-select: none;
-}
-
-.list {
-  max-height: 200px;
-  overflow-y: auto;
-  margin-top: 0.5em;
-  padding-right: 0.5em;
-}
-
-.row {
+.totalRow {
   display: flex;
   justify-content: space-between;
-  padding: 0.2em 0;
-  border-bottom: 1px solid $border;
-}
-
-// ── Timings ─────────────────────────────────────────────────────────────────
-.timingTable {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: $mono;
-  color: $text;
-
-  th {
-    text-align: left;
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .timeColumn {
-    text-align: right;
-  }
+  font-size: 0.85em;
+  color: $text-dim;
+  margin-bottom: 0.5em;
 }

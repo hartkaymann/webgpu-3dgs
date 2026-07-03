@@ -108,17 +108,14 @@ export class Profiler {
         return totalSize;
     }
 
-    getBuffersSortedBySize(): { name: string; size: number }[] {
+    // Buffers in registration order. Sorting/formatting is the consumer's concern.
+    getBuffers(): { name: string; size: number }[] {
         if (!this.bufferManager) return [];
 
-        const sorted = [...this.bufferManager.buffers.entries()]
-            .map(([name, tracked]) => ({
-                name,
-                size: tracked.size ?? 0,
-            }))
-            .sort((a, b) => b.size - a.size);
-
-        return sorted;
+        return [...this.bufferManager.buffers.entries()].map(([name, tracked]) => ({
+            name,
+            size: tracked.size ?? 0,
+        }));
     }
 
     // Reset the per-frame query allocation. Call once before recording passes.

@@ -1,0 +1,28 @@
+@use "../../styles/variables" as *;
+
+.table {
+  width: 100%;
+  min-width: 0; // allow shrink so fixed-layout ellipsis engages inside the group box
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-family: $mono;
+  color: $text;
+  font-size: 0.85em;
+
+  th,
+  td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  th {
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .alignRight {
+    text-align: right;
+  }
+}

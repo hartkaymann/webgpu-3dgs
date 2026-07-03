@@ -219,7 +219,6 @@ export class Controller {
         this.viewports.camera.setProjectionMode(ortho);
     }
 
-    // Toggle continuous orbit of the camera around the target's Y axis.
     setCameraAutoRotate(on: boolean) {
         this.autoRotate = on;
     }

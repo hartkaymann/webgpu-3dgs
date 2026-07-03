@@ -5,8 +5,10 @@ import styles from "./ProfilerPanel.module.scss";
 export function ProfilerPanel() {
     return (
         <div className={styles.panel}>
-            <BuffersView />
-            <TimingsView />
+            <div className={styles.container}>
+                <BuffersView />
+                <TimingsView />
+            </div>
         </div>
     );
 }
