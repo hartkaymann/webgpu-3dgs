@@ -70,7 +70,7 @@ export function CameraControls() {
             <NumberInput label="Focal Length (mm):" value={focal} min={1} onCommit={commitFocal} disabled={mode === "orthographic"} />
             <NumberInput label="Ortho Size:" value={orthoSize} min={0.001} onCommit={commitOrthoSize} disabled={mode === "perspective"} />
             <hr className={inputStyles.divider} />
-            <div className={inputStyles.block}>
+            <div className={inputStyles.inlineRow}>
                 <Checkbox
                     label="Auto-rotate"
                     checked={autoRotate}

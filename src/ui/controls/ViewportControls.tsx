@@ -6,7 +6,7 @@ import { Checkbox } from "../inputs/Checkbox";
 import { applyTheme, getStoredTheme, Theme, VIEWPORT_BG } from "../theme";
 
 const RESOLUTION_TIP =
-    "Internal render resolution. The scene is rendered at this pixel size, then scaled to fit the canvas — lower it for performance, raise it to supersample.";
+    "Internal render resolution. The scene is rendered at this pixel size, then scaled to fit the canvas - lower it for performance, raise it to supersample.";
 
 export function ViewportControls() {
     const { controller } = useRenderer();

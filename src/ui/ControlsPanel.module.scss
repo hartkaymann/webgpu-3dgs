@@ -18,9 +18,7 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  align-content: flex-start; // pack wrapped rows at the top instead of stretching
+  flex-direction: column; // one group per row, full width, stacked top to bottom
   gap: $gap;
   padding: $pad;
   font-family: $mono;
@@ -31,6 +29,7 @@
 
 .group {
   @include group;
+  flex-grow: 0; // size to content instead of stretching to fill the column height
 }
 
 .groupTitle {
@@ -45,6 +44,14 @@
   color: $text-dim;
 }
 
-.toggles {
+.group.toggles {
   flex-direction: column;
+  flex-wrap: nowrap;
+
+  // The shared field/mode/fullWidth classes use flex-basis:100% to fill the row
+  // width in the default (row) groups; in this column that becomes full height,
+  // so pin children to content height and stack them as full-width rows.
+  > * {
+    flex: 0 0 auto;
+  }
 }

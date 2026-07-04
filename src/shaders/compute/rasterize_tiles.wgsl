@@ -4,7 +4,7 @@
 // memory in batches of TILE_AREA (= TILE_X * TILE_Y): every thread cooperatively
 // loads one splat from global storage, then all threads composite that batch
 // front-to-back from fast shared memory. Each splat is read from global once per
-// tile instead of once per pixel — the bandwidth win over the fragment path.
+// tile instead of once per pixel - the bandwidth win over the fragment path.
 //
 // Tile dimensions are baked as shader constants (TILE_X/TILE_Y/TILE_AREA) so the
 // workgroup is one-thread-per-pixel; the renderer recompiles on a tile-size change.

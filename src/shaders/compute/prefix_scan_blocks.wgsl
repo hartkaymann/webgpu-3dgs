@@ -6,7 +6,7 @@
 //   splat_ref_offsets[N]       = total ref count sentinel (used by emit_tile_refs)
 //
 // Single-threaded (workgroup_size 1). The block_sums array has at most
-// ceil(splatCount / (WORKGROUP_SIZE×2)) entries — typically a few thousand even
+// ceil(splatCount / (WORKGROUP_SIZE×2)) entries - typically a few thousand even
 // for large scenes, so the sequential cost is negligible.
 //
 // __CHUNK_SIZE__ is the SCAN chunk size (elements_per_thread * workgroup size, same

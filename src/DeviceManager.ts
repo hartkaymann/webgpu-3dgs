@@ -30,7 +30,7 @@ export class DeviceManager {
         };
 
         // The radix scatter shader relies on subgroup operations, so this feature
-        // is mandatory — without it there is no fallback path.
+        // is mandatory - without it there is no fallback path.
         if (!this.adapter.features.has('subgroups')) {
             throw new Error("WebGPU: the 'subgroups' feature is required but not supported by this adapter.");
         }

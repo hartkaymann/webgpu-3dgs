@@ -3,7 +3,7 @@
 // Each workgroup exclusively scans its own tile of 2*WORKGROUP_SIZE elements of
 // `data` in place, and writes the tile's total sum to block_sums[wg]. The host
 // then scans block_sums (recursively) and calls scan_add to fold the per-tile
-// offsets back in — see scan_add.wgsl and GaussianSplatRenderer.scanHistogram.
+// offsets back in - see scan_add.wgsl and GaussianSplatRenderer.scanHistogram.
 //
 // `n` (element count for this level) comes from a dynamic-offset uniform slot so
 // the same pipeline can be reused for every recursion level. Elements past n are

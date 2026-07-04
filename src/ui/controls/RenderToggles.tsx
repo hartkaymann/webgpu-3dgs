@@ -2,12 +2,17 @@ import { useEffect, useState } from "react";
 import { useRenderer } from "../RendererContext";
 import { Checkbox } from "../inputs/Checkbox";
 import { ToggleButtonGroup } from "../inputs/ToggleButtonGroup";
+import { NumberInput } from "../inputs/NumberInput";
 import { ProfilingMode } from "../../Controller";
+
+const TARGET_FPS_TIP =
+    "Target frame rate for the render loop and the flame graph's default time budget. The actual FPS (shown in the viewport) can't exceed your monitor's refresh rate - rendering is driven by requestAnimationFrame, which only runs once per display refresh - so setting this above your display's Hz won't raise the measured FPS.";
 
 export function RenderToggles() {
     const { controller } = useRenderer();
 
     const [mode, setMode] = useState<ProfilingMode>(() => controller.getProfilingMode());
+    const [targetFps, setTargetFps] = useState(() => controller.getTargetFps());
     const [grid, setGrid] = useState(true);
     const [splats, setSplats] = useState(true);
     const [rebin, setRebin] = useState(false);
@@ -37,6 +42,7 @@ export function RenderToggles() {
     }, [controller]);
 
     const changeMode = (value: ProfilingMode) => { controller.setProfilingMode(value); setMode(value); };
+    const commitTargetFps = (value: number) => { controller.setTargetFps(value); setTargetFps(controller.getTargetFps()); };
     const toggleGrid = (value: boolean) => { controller.renderSettings.grid = value; setGrid(value); };
     const toggleSplats = (value: boolean) => { controller.renderSettings.splats = value; setSplats(value); };
     const toggleRebin = (value: boolean) => { controller.setRebinEveryFrame(value); setRebin(value); };
@@ -52,6 +58,15 @@ export function RenderToggles() {
                     { value: "profile", label: "Profile" },
                     { value: "performance", label: "Performance" },
                 ]}
+            />
+            <NumberInput
+                label="Target FPS:"
+                value={targetFps}
+                min={1}
+                step={1}
+                onCommit={commitTargetFps}
+                title={TARGET_FPS_TIP}
+                fullWidth
             />
             <Checkbox label="Render Grid" checked={grid} onChange={toggleGrid} />
             <Checkbox label="Render Splats" checked={splats} onChange={toggleSplats} />

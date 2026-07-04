@@ -38,7 +38,7 @@ struct ProjectedSplat {
     tile_max: vec2<u32>,
 };
 
-// Sort key: two u32 stored interleaved — [hi_0, lo_0, hi_1, lo_1, ...]
+// Sort key: two u32 stored interleaved - [hi_0, lo_0, hi_1, lo_1, ...]
 // Stride 2 u32 per entry.
 struct SortKey {
     hi: u32, // tile_id

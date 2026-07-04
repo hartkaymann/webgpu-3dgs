@@ -51,7 +51,7 @@ export class SceneLoader {
     }
 
     // Parse only the header (on the worker) for the import preview. Reads at most
-    // 1 MiB — enough for any Gaussian-splat PLY header — without loading the body.
+    // 1 MiB - enough for any Gaussian-splat PLY header - without loading the body.
     async peekHeader(file: File): Promise<void> {
         try {
             const buffer = await file.slice(0, 1024 * 1024).arrayBuffer();

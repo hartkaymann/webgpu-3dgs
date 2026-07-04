@@ -3,14 +3,14 @@
 // the pre-scanned offsets, and writes to the output buffers.
 //
 // The output index for element i with digit d in workgroup wg is:
-//   radix_group_offsets[d * num_wg + wg] — global start of bucket d plus the
+//   radix_group_offsets[d * num_wg + wg] - global start of bucket d plus the
 //                                          elements with digit d from earlier
 //                                          workgroups (base_d + prefix_wg, already
 //                                          combined by the digit-major histogram scan)
-// + local rank                           — this element's rank within (wg, d)
+// + local rank                           - this element's rank within (wg, d)
 //
 // The local rank is the number of EARLIER lanes (in local_invocation_index order)
-// in this workgroup that share this lane's digit — a stable counting sort, which is
+// in this workgroup that share this lane's digit - a stable counting sort, which is
 // what a correct LSD radix sort requires across passes.
 //
 // It is computed with subgroup ops in two levels:
@@ -104,7 +104,7 @@ fn main(
 
     // 1. Within-subgroup peer mask: lanes that are active AND share this digit.
     //    Start from the active lanes, then narrow by matching each of the 8 digit
-    //    bits. Excluding inactive lanes up front is essential — INACTIVE (all bits
+    //    bits. Excluding inactive lanes up front is essential - INACTIVE (all bits
     //    set) would otherwise match the real digit-255 group on its low 8 bits.
     var peers: vec4<u32> = subgroupBallot(in_range);
     for (var b = 0u; b < 8u; b = b + 1u) {

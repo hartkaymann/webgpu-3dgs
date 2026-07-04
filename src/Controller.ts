@@ -37,6 +37,7 @@ export class Controller {
     onFps: ((fps: number) => void) | null = null;
     onSceneReady: (() => void) | null = null;
     onProfilingModeChanged: ((mode: ProfilingMode) => void) | null = null;
+    onTargetFpsChanged: ((fps: number) => void) | null = null;
 
     bufferManager: BufferManager;
     bindGroupsManager: BindGroupManager;
@@ -60,6 +61,8 @@ export class Controller {
     private autoRotateSpeed = 0.5;
 
     private profilingMode: ProfilingMode = "profile";
+
+    private targetFps = 60;
 
     private prevTime = 0;
     private timeAccumulator = 0;
@@ -113,8 +116,9 @@ export class Controller {
         const currTime = performance.now();
         const deltaTime = currTime - this.prevTime;
 
-        // Cap to 60 fps
-        if (deltaTime >= 1000 / 60) {
+        // Throttle to the target frame rate. Actual FPS is still bounded by the
+        // display refresh rate, since render() is driven by requestAnimationFrame.
+        if (deltaTime >= 1000 / this.targetFps) {
             this.prevTime = currTime;
 
             if (!this.running) return;
@@ -199,6 +203,17 @@ export class Controller {
 
     getProfilingMode(): ProfilingMode {
         return this.profilingMode;
+    }
+
+    // Target frame rate for the render loop (and the flame graph's default budget).
+    // Actual FPS stays capped by the display refresh rate (requestAnimationFrame).
+    setTargetFps(fps: number) {
+        this.targetFps = Math.max(1, fps);
+        this.onTargetFpsChanged?.(this.targetFps);
+    }
+
+    getTargetFps(): number {
+        return this.targetFps;
     }
 
     // Toggle view-dependent color from spherical harmonics.

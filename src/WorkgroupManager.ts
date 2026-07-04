@@ -147,7 +147,7 @@ export const tile2D = (tileX: number, tileY: number): WorkgroupStrategy =>
 
 // Like linear1D, but additionally shrinks the workgroup so a workgroup tile
 // (`elementsPerThread * x` elements of `bytesPerElement` each) fits in shared memory.
-// Scales the workgroup up to the device maximum by default. Generic — it only knows
+// Scales the workgroup up to the device maximum by default. Generic - it only knows
 // "each thread owns N elements that cost M bytes of shared scratch each".
 export const tiled1D = (elementsPerThread: number, bytesPerElement: number, preferredSize = Infinity): WorkgroupStrategy =>
     ({ limits, problemSize }) => {

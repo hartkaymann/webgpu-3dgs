@@ -1,8 +1,8 @@
-// Phase 1 of 3: parallel Blelloch exclusive prefix scan — local (per-chunk).
+// Phase 1 of 3: parallel Blelloch exclusive prefix scan - local (per-chunk).
 //
 // Each workgroup handles a chunk of 2*WORKGROUP_SIZE elements from splat_ref_counts.
 // It performs a full Blelloch up-sweep + down-sweep in shared memory, producing:
-//   splat_ref_offsets[i]  = within-chunk exclusive prefix sum  (partial — block offset not yet added)
+//   splat_ref_offsets[i]  = within-chunk exclusive prefix sum  (partial - block offset not yet added)
 //   block_sums[wg]        = total sum of the chunk             (input to prefix_scan_blocks)
 //
 // Elements beyond splat_count are treated as 0 (padding for the last chunk).

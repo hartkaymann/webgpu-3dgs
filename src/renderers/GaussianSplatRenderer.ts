@@ -804,7 +804,7 @@ export class GaussianSplatRenderer implements IRenderer {
         });
 
         // The "rasterize_io" and "composite" bind groups reference the offscreen splat
-        // target, which is created lazily once the viewport is known — see resizeViewportTargets.
+        // target, which is created lazily once the viewport is known - see resizeViewportTargets.
     }
 
     private createPipelines(format: GPUTextureFormat): void {

@@ -467,7 +467,7 @@ function writeGaussianSplat(
     const length = Math.hypot(r0, r1, r2, r3);
     const invLength = length > 0.0 ? 1.0 / length : 1.0;
 
-    // Stored quaternion order is (w, x, y, z) — see preprocess_splats.wgsl quat_to_mat3.
+    // Stored quaternion order is (w, x, y, z) - see preprocess_splats.wgsl quat_to_mat3.
     let qw = r0 * invLength;
     let qx = r1 * invLength;
     let qy = r2 * invLength;
@@ -560,7 +560,7 @@ function buildSplatTransform(transform?: number[]): SplatTransform | null {
 
 // Rotate a splat's orientation quaternion (w, x, y, z) by M. Positions use M
 // directly; rotations need M·R re-expressed as a quaternion. If M·R is improper
-// (det < 0, i.e. M reflects), one column is negated to recover a proper rotation —
+// (det < 0, i.e. M reflects), one column is negated to recover a proper rotation -
 // valid because a Gaussian ellipsoid is centrally symmetric, so the resulting
 // covariance R·S²·Rᵀ is unchanged.
 function transformQuaternion(

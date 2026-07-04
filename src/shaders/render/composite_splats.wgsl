@@ -34,7 +34,7 @@ fn main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 
 @fragment
 fn main_fs(@builtin(position) position: vec4<f32>) -> FragmentOutput {
-    // 1:1 pixel mapping — load the matching texel (no sampler needed).
+    // 1:1 pixel mapping - load the matching texel (no sampler needed).
     let texel = vec2<i32>(position.xy);
     var out: FragmentOutput;
     out.color = textureLoad(splat_tex, texel, 0);

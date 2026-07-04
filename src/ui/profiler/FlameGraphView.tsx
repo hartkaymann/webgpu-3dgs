@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useRenderer } from "../RendererContext";
 import styles from "../ProfilerPanel.module.scss";
 
-const TARGET_FPS = 60;
-const TARGET_US = 1_000_000 / TARGET_FPS; // frame budget in µs
 const TICK_US = 1000; // x-axis tick spacing (1 ms)
 const MIN_SPAN_US = 200; // deepest zoom
 
@@ -31,12 +29,13 @@ interface View {
 }
 
 export function FlameGraphView() {
-    const { profiler } = useRenderer();
+    const { profiler, controller } = useRenderer();
     const read = () => ({ rows: profiler.getTimings(), order: profiler.getExecutionOrder() });
 
     const [data, setData] = useState(read);
     const [frozen, setFrozen] = useState(false);
     const [zoom, setZoom] = useState<View | null>(null);
+    const [targetFps, setTargetFps] = useState(() => controller.getTargetFps());
 
     const frozenRef = useRef(frozen);
     frozenRef.current = frozen;
@@ -46,11 +45,21 @@ export function FlameGraphView() {
         if (!frozenRef.current) setData(read());
     }), [profiler]);
 
+    // Keep the default budget/axis in sync with the render target fps.
+    useEffect(() => {
+        controller.onTargetFpsChanged = (fps) => setTargetFps(fps);
+        return () => {
+            controller.onTargetFpsChanged = null;
+        };
+    }, [controller]);
+
+    const targetUs = 1_000_000 / targetFps; // frame budget in µs
+
     const tree = buildTimingTree(data.rows, data.order);
     const treeRows = flatten(tree);
     const { bars, total, maxDepth } = layoutFlame(tree);
 
-    const fullEnd = Math.max(total, TARGET_US);
+    const fullEnd = Math.max(total, targetUs);
     const fullEndRef = useRef(fullEnd);
     fullEndRef.current = fullEnd;
 
@@ -60,7 +69,7 @@ export function FlameGraphView() {
     const x = (t: number) => ((t - start) / span) * 100;
 
     const trackPct = 100 / (maxDepth + 1);
-    const overBudget = total > TARGET_US;
+    const overBudget = total > targetUs;
 
     const ticks: number[] = [];
     let firstTick = Math.ceil(start / TICK_US) * TICK_US;
@@ -181,9 +190,9 @@ export function FlameGraphView() {
                                 <span className={styles.flameLabel}>{bar.name}</span>
                             </div>
                         ))}
-                        {overBudget && x(TARGET_US) >= 0 && x(TARGET_US) <= 100 && (
-                            <div className={styles.flameMarker} style={{ left: `${x(TARGET_US)}%` }}>
-                                <span className={styles.flameMarkerLabel}>{TARGET_FPS} fps</span>
+                        {overBudget && x(targetUs) >= 0 && x(targetUs) <= 100 && (
+                            <div className={styles.flameMarker} style={{ left: `${x(targetUs)}%` }}>
+                                <span className={styles.flameMarkerLabel}>{targetFps} fps</span>
                             </div>
                         )}
                     </div>

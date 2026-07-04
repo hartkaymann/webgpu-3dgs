@@ -29,7 +29,7 @@ struct GridConfig {
 @group(1) @binding(0) var<uniform> config: GridConfig;
 
 // Alpha-composite src_color (attenuated by src_t) over dst.
-// Unlike mix(), when dst is transparent this never bleeds dst.rgb into the output —
+// Unlike mix(), when dst is transparent this never bleeds dst.rgb into the output -
 // the line color is used on both sides of the AA transition, so edges stay clean.
 fn composite_over(dst: vec4f, src_color: vec4f, src_t: f32) -> vec4f {
     let a     = src_t * src_color.a;
