@@ -50,6 +50,12 @@ npm run preview  # serve the production build
 
 Then open the URL Vite prints (default <http://localhost:5173>).
 
+## Useful links
+Websites I used to find pre-trained 3DGS PLY files:
+- https://superspl.at/
+- https://www.useblurry.com/public-data
+
+
 ## References
 
 [^1]: Kerbl, B., Kopanas, G., Leimkühler, T., & Drettakis, G. (2023). *3D Gaussian Splatting for Real-Time Radiance Field Rendering*. ACM Transactions on Graphics (SIGGRAPH 2023). https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/
