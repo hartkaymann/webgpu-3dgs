@@ -3,30 +3,52 @@
 
 .panel {
   @include panel;
-  flex: 1 1 0; // ~1/4 of the right column
+  flex: 0 0 auto; // horizontal strip under the canvas
+  height: 14rem;
   min-height: 0;
-  overflow: hidden; // the inner container scrolls
+  overflow: hidden; // the inner sections scroll
   display: flex;
   flex-direction: column;
-  border-radius: 0 0 $radius $radius;
+  border-radius: 0 0 0 $radius; // outer (bottom-left) corner
 }
 
 .container {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row; // sections sit next to each other
   gap: 1em;
   padding: $pad;
   box-sizing: border-box;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .section {
   @include group;
+  flex: 0 0 auto;
   flex-direction: column;
-  flex-grow: 0;
   flex-wrap: nowrap;
+  min-height: 0;
+  min-width: 0;
+}
+
+// Buffers + Frame Breakdown: compact fixed width, content scrolls vertically.
+.sectionTable {
+  width: 15rem;
+}
+
+// Flame graph: fills the remaining horizontal space.
+.sectionFlame {
+  flex: 1 1 auto;
+}
+
+// Scroll region below a section title (keeps the title fixed).
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.25em;
 }
 
 .sectionTitle {
@@ -40,10 +62,168 @@
   color: $text-dim;
 }
 
+// Title row with a right-aligned toolbar (keeps the underline under the whole row).
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  border-bottom: 1px solid $border;
+  padding-bottom: 0.4em;
+
+  .sectionTitle {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+}
+
+.flameControls {
+  display: flex;
+  gap: 0.15em;
+
+  button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: $text-dim;
+    cursor: pointer;
+    padding: 2px 5px;
+    font-size: 0.85em;
+    border-radius: $radius-sm;
+
+    &:hover {
+      color: $text;
+      background: $control-bg;
+    }
+  }
+}
+
 .totalRow {
   display: flex;
   justify-content: space-between;
   font-size: 0.85em;
   color: $text-dim;
   margin-bottom: 0.5em;
+}
+
+.tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  font-size: 0.85em;
+  padding-right: 0.25em;
+}
+
+.treeRow,
+.treeGroup {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.treeGroup {
+  color: $text-dim;
+  letter-spacing: 0.02em;
+}
+
+.treeName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeTime {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.flame {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.flameBody {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.flameTick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid $border;
+  pointer-events: none;
+}
+
+.flameAxis {
+  position: relative;
+  flex: 0 0 auto;
+  height: 1.1em;
+  margin-top: 3px;
+}
+
+.flameAxisLabel {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 0.65em;
+  color: $text-dim;
+  white-space: nowrap;
+}
+
+.flameBar {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 0 3px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  font-size: 0.72em;
+  line-height: 1;
+  color: rgba(15, 18, 35, 0.85); // dark text for the pastel bars
+  cursor: inherit;
+}
+
+.flameLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flameMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed $accent;
+  pointer-events: none;
+}
+
+.flameMarkerLabel {
+  position: absolute;
+  top: 0;
+  transform: translateX(-100%);
+  padding-right: 3px;
+  font-size: 0.7em;
+  color: $accent;
+  white-space: nowrap;
 }

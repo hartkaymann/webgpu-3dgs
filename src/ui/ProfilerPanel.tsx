@@ -1,5 +1,5 @@
 import { BuffersView } from "./profiler/BuffersView";
-import { TimingsView } from "./profiler/TimingsView";
+import { FlameGraphView } from "./profiler/FlameGraphView";
 import styles from "./ProfilerPanel.module.scss";
 
 export function ProfilerPanel() {
@@ -7,7 +7,7 @@ export function ProfilerPanel() {
         <div className={styles.panel}>
             <div className={styles.container}>
                 <BuffersView />
-                <TimingsView />
+                <FlameGraphView />
             </div>
         </div>
     );

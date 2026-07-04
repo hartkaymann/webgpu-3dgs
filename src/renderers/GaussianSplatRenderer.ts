@@ -1207,10 +1207,12 @@ export class GaussianSplatRenderer implements IRenderer {
         }
 
         // Stage 2: Blelloch parallel prefix scan
+        this.profiler.pushScope("prefix_sum");
+
         // 2A: local scan - each of scanGroupCount workgroups Blelloch-scans its chunk,
         //     writes partial prefix sums to splat_ref_offsets and chunk totals to block_sums.
         {
-            const pass = this.profiler.beginComputePass("prefix-scan-local", commandEncoder);
+            const pass = this.profiler.beginComputePass("local", commandEncoder);
             pass.setPipeline(this.prefixScanLocalPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_local"));
             pass.dispatchWorkgroups(this.workgroups.getLayout("splat-scan").dispatchSize[0]);
@@ -1219,7 +1221,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // 2B: block scan - single thread scans block_sums in-place, writes ref_counter + sentinel.
         {
-            const pass = this.profiler.beginComputePass("prefix-scan-blocks", commandEncoder);
+            const pass = this.profiler.beginComputePass("blocks", commandEncoder);
             pass.setPipeline(this.prefixScanBlocksPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_blocks"));
             pass.dispatchWorkgroups(1);
@@ -1228,12 +1230,14 @@ export class GaussianSplatRenderer implements IRenderer {
 
         // 2C: add block offsets - each workgroup adds its chunk's global offset to its local sums.
         {
-            const pass = this.profiler.beginComputePass("prefix-scan-add", commandEncoder);
+            const pass = this.profiler.beginComputePass("add", commandEncoder);
             pass.setPipeline(this.prefixScanAddPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("prefix_scan_add"));
             pass.dispatchWorkgroups(this.workgroups.getLayout("splat-scan").dispatchSize[0]);
             pass.end();
         }
+
+        this.profiler.popScope();
 
         // Stage 3: emit one (key, value) pair per (splat, tile) ref -> sort_keys_a / sort_values_a
         {
@@ -1269,7 +1273,10 @@ export class GaussianSplatRenderer implements IRenderer {
         }
         this.bufferManager.write("scan_uniforms", scanSlots, 0);
 
+        this.profiler.pushScope("radix_sort");
         for (let p = 0; p < GaussianSplatRenderer.RADIX_PASSES; p++) {
+            this.profiler.pushScope("pass");
+
             const slotOffset = p * stride;
 
             const histogramBg = p % 2 === 0
@@ -1282,7 +1289,7 @@ export class GaussianSplatRenderer implements IRenderer {
 
             // 4A: histogram - count digits per workgroup (digit-major table)
             {
-                const pass = this.profiler.beginComputePass("radix-histogram", commandEncoder);
+                const pass = this.profiler.beginComputePass("histogram", commandEncoder);
                 pass.setPipeline(this.radixHistogramPipeline);
                 pass.setBindGroup(0, histogramBg, [slotOffset]);
                 pass.dispatchWorkgroups(rgc);
@@ -1294,13 +1301,16 @@ export class GaussianSplatRenderer implements IRenderer {
 
             // 4C: scatter - place each element at its final sorted position
             {
-                const pass = this.profiler.beginComputePass("radix-scatter", commandEncoder);
+                const pass = this.profiler.beginComputePass("scatter", commandEncoder);
                 pass.setPipeline(this.radixScatterPipeline);
                 pass.setBindGroup(0, scatterBg, [slotOffset]);
                 pass.dispatchWorkgroups(rgc);
                 pass.end();
             }
+
+            this.profiler.popScope();
         }
+        this.profiler.popScope();
 
         // Stage 5: walk sorted sort_keys_a -> tile_offsets
         {

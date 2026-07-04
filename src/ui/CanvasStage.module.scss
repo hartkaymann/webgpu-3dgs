@@ -19,7 +19,7 @@
   overflow: auto;
   background-color: $panel-bg;
   border: 1px solid $panel-bg;
-  border-radius: $radius;
+  border-radius: $radius 0 0 0; // only the outer (top-left) corner is rounded
 }
 
 .canvas {

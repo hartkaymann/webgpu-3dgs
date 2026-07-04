@@ -6,6 +6,7 @@ export class Profiler {
     bufferManager: BufferManager | null = null;
 
     private canTimestamp: boolean;
+    private active = true;
 
     // ── GPU timestamp timing ────────────────────────────────────────────────
     // One shared query set holds up to QUERY_CAPACITY (begin, end) pairs per
@@ -17,6 +18,11 @@ export class Profiler {
     private querySet: GPUQuerySet | null = null;
     private resolveBuffer: GPUBuffer | null = null;
     private resultBuffer: GPUBuffer | null = null;
+
+    // Scope path for grouping passes; repeated sibling segments per frame are
+    // auto-numbered ("pass", "pass 2", …) via segCounts.
+    private scopeStack: string[] = [];
+    private segCounts: Map<string, number> = new Map();
 
     // Labels claimed this frame, in encode order (index === query pair).
     private frameLabels: string[] = [];
@@ -37,10 +43,10 @@ export class Profiler {
     private flushIntervalMs = 1000;
     private lastFlush = 0;
 
-    // Renderer → UI callbacks. The profiler computes data and notifies; the
-    // consumer (React) reads the getters below and renders. No DOM access here.
-    onBuffersChanged: (() => void) | null = null;
-    onTimingsChanged: (() => void) | null = null;
+    // UI subscriptions. The profiler computes data and notifies; consumers
+    // (React) read the getters below and re-render. No DOM access here.
+    private buffersListeners: Set<() => void> = new Set();
+    private timingsListeners: Set<() => void> = new Set();
 
     gpuMemoryMax: number = 0;
     gpuMemoryUsage: number = 0;
@@ -82,7 +88,7 @@ export class Profiler {
         this.bufferManager = manager;
 
         manager.onResize(() => {
-            this.onBuffersChanged?.();
+            this.notify(this.buffersListeners);
         });
 
         if (this.canTimestamp) {
@@ -118,24 +124,64 @@ export class Profiler {
         }));
     }
 
+    // Performance mode: when inactive, all per-frame profiling work is skipped so
+    // passes carry no timestampWrites and no query readback happens.
+    setActive(active: boolean): void {
+        if (this.active === active) return;
+        this.active = active;
+        if (!active) {
+            this.resetTimings();
+            this.lastFlush = 0; // re-activation starts a fresh averaging window
+        }
+    }
+
     // Reset the per-frame query allocation. Call once before recording passes.
     beginFrame(): void {
+        if (!this.active) return;
         this.frameLabels.length = 0;
+        this.scopeStack.length = 0;
+        this.segCounts.clear();
+    }
+
+    pushScope(name: string): void {
+        if (!this.active) return;
+        this.scopeStack.push(this.nextSegment(name));
+    }
+
+    popScope(): void {
+        if (!this.active) return;
+        this.scopeStack.pop();
+    }
+
+    // Number repeated sibling passes within a frame: the first stays bare, later
+    // ones get their 0-based index (name1, name2, …).
+    private nextSegment(name: string): string {
+        const key = this.scopeStack.join("/") + "|" + name;
+        const occ = this.segCounts.get(key) ?? 0;
+        this.segCounts.set(key, occ + 1);
+        return occ === 0 ? name : `${name}${occ}`;
+    }
+
+    private composeKey(label: string): string {
+        return [...this.scopeStack, this.nextSegment(label)].join("/");
     }
 
     // Begin a compute pass that is timed via the shared query set. Falls back to
     // an untimed pass when timestamps are unavailable or the per-frame query
     // capacity is exhausted.
     beginComputePass(label: string, encoder: GPUCommandEncoder): GPUComputePassEncoder {
+        if (!this.active) return encoder.beginComputePass({ label });
+
+        const key = this.composeKey(label);
         if (!this.canTimestamp || !this.querySet || this.frameLabels.length >= Profiler.QUERY_CAPACITY) {
-            return encoder.beginComputePass({ label });
+            return encoder.beginComputePass({ label: key });
         }
 
         const pair = this.frameLabels.length;
-        this.frameLabels.push(label);
+        this.frameLabels.push(key);
 
         return encoder.beginComputePass({
-            label,
+            label: key,
             timestampWrites: {
                 querySet: this.querySet,
                 beginningOfPassWriteIndex: pair * 2,
@@ -148,12 +194,15 @@ export class Profiler {
     // the whole pass (vertex + fragment combined); WebGPU cannot separate the
     // two stages. Falls back to an untimed pass when unavailable or at capacity.
     beginRenderPass(label: string, encoder: GPUCommandEncoder, descriptor: GPURenderPassDescriptor): GPURenderPassEncoder {
+        if (!this.active) return encoder.beginRenderPass(descriptor);
+
+        const key = this.composeKey(label);
         if (!this.canTimestamp || !this.querySet || this.frameLabels.length >= Profiler.QUERY_CAPACITY) {
             return encoder.beginRenderPass(descriptor);
         }
 
         const pair = this.frameLabels.length;
-        this.frameLabels.push(label);
+        this.frameLabels.push(key);
 
         return encoder.beginRenderPass({
             ...descriptor,
@@ -169,6 +218,7 @@ export class Profiler {
     // same encoder, before it is finished/submitted. Skipped if the result
     // buffer is still mapped from a previous in-flight readback.
     endFrame(encoder: GPUCommandEncoder): void {
+        if (!this.active) return;
         if (!this.canTimestamp || !this.querySet || !this.resolveBuffer || !this.resultBuffer) return;
 
         const pairs = this.frameLabels.length;
@@ -189,6 +239,7 @@ export class Profiler {
     // has been submitted. The async map resolves a frame or two later; results
     // feed the averaging window and a periodic panel flush.
     readback(): void {
+        if (!this.active) return;
         const resultBuffer = this.resultBuffer;
         if (!this.canTimestamp || !resultBuffer || this.pendingLabels.length === 0) return;
         if (resultBuffer.mapState !== "unmapped") return;
@@ -241,7 +292,32 @@ export class Profiler {
         this.accSum.clear();
         this.accCount.clear();
 
-        this.onTimingsChanged?.();
+        this.notify(this.timingsListeners);
+    }
+
+    subscribeBuffers(cb: () => void): () => void {
+        this.buffersListeners.add(cb);
+        return () => { this.buffersListeners.delete(cb); };
+    }
+
+    subscribeTimings(cb: () => void): () => void {
+        this.timingsListeners.add(cb);
+        return () => { this.timingsListeners.delete(cb); };
+    }
+
+    // Drop the accumulation window and published timings, then notify so the UI
+    // clears and starts averaging afresh.
+    resetTimings(): void {
+        this.timings.clear();
+        this.executionOrder = [];
+        this.accSum.clear();
+        this.accCount.clear();
+        this.lastFrameOrder = [];
+        this.notify(this.timingsListeners);
+    }
+
+    private notify(listeners: Set<() => void>): void {
+        listeners.forEach((cb) => cb());
     }
 
     // Averaged shader timings (µs) in execution order. Sorting/formatting is the

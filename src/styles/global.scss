@@ -65,6 +65,32 @@ body {
   width: 100%;
 }
 
+// ── Scrollbars ──────────────────────────────────────────────────────────────
+// Thin, rounded, grey track with a darker thumb.
+* {
+  scrollbar-width: thin; // Firefox
+  scrollbar-color: $control-bg $border-strong; // thumb, track
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: $border-strong;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: $control-bg;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: $control-bg-hover;
+}
+
 button {
   font-family: $mono;
 }

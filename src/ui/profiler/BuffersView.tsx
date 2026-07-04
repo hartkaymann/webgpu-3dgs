@@ -32,30 +32,27 @@ export function BuffersView() {
     const [, forceUpdate] = useState(0);
 
     // Re-read profiler data whenever a buffer is (re)allocated.
-    useEffect(() => {
-        profiler.onBuffersChanged = () => forceUpdate((n) => n + 1);
-        return () => {
-            profiler.onBuffersChanged = null;
-        };
-    }, [profiler]);
+    useEffect(() => profiler.subscribeBuffers(() => forceUpdate((n) => n + 1)), [profiler]);
 
     const total = profiler.getTotalBufferSize();
     const buffers = profiler.getBuffers();
 
     return (
-        <section className={styles.section}>
+        <section className={`${styles.section} ${styles.sectionTable}`}>
             <h3 className={styles.sectionTitle}>Buffers</h3>
             <div className={styles.totalRow}>
                 <span>Total</span>
                 <span>{formatBufferSize(total)}</span>
             </div>
-            <SortableTable
-                columns={COLUMNS}
-                rows={buffers}
-                getRowKey={(row) => row.name}
-                initialSortKey="size"
-                initialSortDir="desc"
-            />
+            <div className={styles.scroll}>
+                <SortableTable
+                    columns={COLUMNS}
+                    rows={buffers}
+                    getRowKey={(row) => row.name}
+                    initialSortKey="size"
+                    initialSortDir="desc"
+                />
+            </div>
         </section>
     );
 }

@@ -3,12 +3,15 @@
 
 .panel {
   @include panel;
-  flex: 3 1 0; // ~3/4 of the right column
+  flex: 0 0 auto; // fixed-width column, full viewport height
+  width: 360px;
+  min-width: 300px;
+  max-width: 400px;
   min-height: 0;
   overflow: hidden; // the inner container scrolls
   display: flex;
   flex-direction: column;
-  border-radius: $radius $radius 0 0;
+  border-radius: 0 $radius $radius 0; // outer (right-hand) corners
 }
 
 .container {

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { useRenderer } from "../RendererContext";
 import { Checkbox } from "../inputs/Checkbox";
+import { ToggleButtonGroup } from "../inputs/ToggleButtonGroup";
+import { ProfilingMode } from "../../Controller";
 
 export function RenderToggles() {
     const { controller } = useRenderer();
 
+    const [mode, setMode] = useState<ProfilingMode>(() => controller.getProfilingMode());
     const [grid, setGrid] = useState(true);
     const [splats, setSplats] = useState(true);
     const [rebin, setRebin] = useState(false);
@@ -33,6 +36,7 @@ export function RenderToggles() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [controller]);
 
+    const changeMode = (value: ProfilingMode) => { controller.setProfilingMode(value); setMode(value); };
     const toggleGrid = (value: boolean) => { controller.renderSettings.grid = value; setGrid(value); };
     const toggleSplats = (value: boolean) => { controller.renderSettings.splats = value; setSplats(value); };
     const toggleRebin = (value: boolean) => { controller.setRebinEveryFrame(value); setRebin(value); };
@@ -40,6 +44,15 @@ export function RenderToggles() {
 
     return (
         <>
+            <ToggleButtonGroup
+                value={mode}
+                onChange={changeMode}
+                title="Profile: measure per-pass GPU timings and show the profiler panel. Performance: disable all profiling overhead (no GPU timestamps) for maximum render speed."
+                options={[
+                    { value: "profile", label: "Profile" },
+                    { value: "performance", label: "Performance" },
+                ]}
+            />
             <Checkbox label="Render Grid" checked={grid} onChange={toggleGrid} />
             <Checkbox label="Render Splats" checked={splats} onChange={toggleSplats} />
             <Checkbox

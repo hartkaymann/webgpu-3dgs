@@ -17,6 +17,19 @@ export function App() {
 
     const [handles, setHandles] = useState<RendererHandles | null>(null);
     const [failed, setFailed] = useState(false);
+    const [profiling, setProfiling] = useState(true);
+
+    // Mirror the renderer's profiling mode so the profiler panel is hidden in
+    // performance mode.
+    useEffect(() => {
+        if (!handles) return;
+        const controller = handles.controller;
+        setProfiling(controller.getProfilingMode() === "profile");
+        controller.onProfilingModeChanged = (mode) => setProfiling(mode === "profile");
+        return () => {
+            controller.onProfilingModeChanged = null;
+        };
+    }, [handles]);
 
     // One-time WebGPU + renderer setup against the mounted canvas. Children
     // mount before this parent effect runs, so the refs are populated.
@@ -74,7 +87,7 @@ export function App() {
 
     return (
         <div className={styles.layout}>
-            <div className={styles.workspace}>
+            <div className={styles.main}>
                 <CanvasStage
                     canvasRef={canvasRef}
                     wrapperRef={wrapperRef}
@@ -83,15 +96,18 @@ export function App() {
                     failed={failed}
                 />
 
-                {handles && (
+                {handles && profiling && (
                     <RendererContext.Provider value={handles}>
-                        <div className={styles.rightPanel}>
-                            <ControlsPanel />
-                            <ProfilerPanel />
-                        </div>
+                        <ProfilerPanel />
                     </RendererContext.Provider>
                 )}
             </div>
+
+            {handles && (
+                <RendererContext.Provider value={handles}>
+                    <ControlsPanel />
+                </RendererContext.Provider>
+            )}
         </div>
     );
 }

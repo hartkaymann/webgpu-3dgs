@@ -20,6 +20,8 @@ export interface RenderSettings {
     tiles: vec2;
 }
 
+export type ProfilingMode = "profile" | "performance";
+
 export class Controller {
     private readonly gpu: WebGPUContext;
 
@@ -34,6 +36,7 @@ export class Controller {
     // other consumer) registers these to observe renderer state.
     onFps: ((fps: number) => void) | null = null;
     onSceneReady: (() => void) | null = null;
+    onProfilingModeChanged: ((mode: ProfilingMode) => void) | null = null;
 
     bufferManager: BufferManager;
     bindGroupsManager: BindGroupManager;
@@ -55,6 +58,8 @@ export class Controller {
     // Speed is in radians per second; applied each frame scaled by delta time.
     private autoRotate = false;
     private autoRotateSpeed = 0.5;
+
+    private profilingMode: ProfilingMode = "profile";
 
     private prevTime = 0;
     private timeAccumulator = 0;
@@ -182,6 +187,18 @@ export class Controller {
     // Force the splat binning/rasterize to run every frame (profiling) vs. only on change.
     setRebinEveryFrame(on: boolean) {
         this.viewports.splatRenderer.setAlwaysRebin(on);
+    }
+
+    // Profile: GPU timestamps + flame graph. Performance: profiler inactive (no
+    // per-frame timestamp/readback overhead); the UI hides the profiler panel.
+    setProfilingMode(mode: ProfilingMode) {
+        this.profilingMode = mode;
+        this.profiler.setActive(mode === "profile");
+        this.onProfilingModeChanged?.(mode);
+    }
+
+    getProfilingMode(): ProfilingMode {
+        return this.profilingMode;
     }
 
     // Toggle view-dependent color from spherical harmonics.
