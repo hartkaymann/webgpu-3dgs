@@ -45,7 +45,7 @@ export class GizmoRenderer implements IRenderer {
         this.pipelineManager = new PipelineManager(this.device);
     }
 
-    // Each axis: origin vertex (axis color) → tip vertex (axis color), drawn as line-list.
+    // Each axis: origin vertex (axis color) -> tip vertex (axis color), drawn as line-list.
     private buildVertices(): Float32Array {
         const [xr, xg, xb, xa] = this.config.xAxisColor;
         const [yr, yg, yb, ya] = this.config.yAxisColor;

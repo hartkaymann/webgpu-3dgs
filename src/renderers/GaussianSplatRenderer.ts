@@ -238,8 +238,9 @@ export class GaussianSplatRenderer implements IRenderer {
         this.splatTarget = this.device.createTexture({
             label: "splat-target",
             size: [viewportW, viewportH],
+            // COPY_SRC lets readSplatImage() copy the splat-only color out for PNG export.
+            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
             format: "rgba16float",
-            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
         });
         this.splatTargetView = this.splatTarget.createView();
 
@@ -1375,4 +1376,68 @@ export class GaussianSplatRenderer implements IRenderer {
             this.tileCountMapPending = false;
         }
     }
+
+    // Read the splat-only color target (no grid/gizmo) back to the CPU for PNG export.
+    // Returns tightly-packed premultiplied RGBA (float), decoded from rgba16float. Reflects
+    // the last rasterized frame (persists between frames; see render()).
+    async readImage(): Promise<{ width: number; height: number; pixels: Float32Array } | null> {
+        const target = this.splatTarget;
+        if (!target) return null;
+
+        const width = target.width;
+        const height = target.height;
+        if (width === 0 || height === 0) return null;
+
+        // rgba16float = 8 bytes/texel; bytesPerRow must be 256-aligned.
+        const unpaddedBytesPerRow = width * 8;
+        const bytesPerRow = Math.ceil(unpaddedBytesPerRow / 256) * 256;
+
+        const staging = this.device.createBuffer({
+            label: "splat-image-staging",
+            size: bytesPerRow * height,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        });
+
+        try {
+            const encoder = this.device.createCommandEncoder({ label: "splat-image-readback" });
+            encoder.copyTextureToBuffer(
+                { texture: target },
+                { buffer: staging, bytesPerRow, rowsPerImage: height },
+                [width, height, 1],
+            );
+            this.device.queue.submit([encoder.finish()]);
+
+            await staging.mapAsync(GPUMapMode.READ);
+            const bytes = new Uint8Array(staging.getMappedRange());
+
+            // Decode per row, skipping row padding, into tightly-packed RGBA.
+            const pixels = new Float32Array(width * height * 4);
+            for (let y = 0; y < height; y++) {
+                const rowU16 = new Uint16Array(bytes.buffer, bytes.byteOffset + y * bytesPerRow, width * 4);
+                const dst = y * width * 4;
+                for (let i = 0; i < width * 4; i++) {
+                    pixels[dst + i] = halfToFloat(rowU16[i]);
+                }
+            }
+
+            staging.unmap();
+            return { width, height, pixels };
+        } catch {
+            return null;
+        } finally {
+            staging.destroy();
+        }
+    }
+}
+
+// IEEE-754 binary16 (half) bit pattern -> number.
+function halfToFloat(h: number): number {
+    const sign = (h & 0x8000) >> 15;
+    const exponent = (h & 0x7c00) >> 10;
+    const fraction = h & 0x03ff;
+    const s = sign ? -1 : 1;
+
+    if (exponent === 0) return s * Math.pow(2, -14) * (fraction / 1024); // subnormal / zero
+    if (exponent === 0x1f) return fraction ? NaN : s * Infinity;
+    return s * Math.pow(2, exponent - 15) * (1 + fraction / 1024);
 }

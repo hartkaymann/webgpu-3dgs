@@ -156,7 +156,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let color_rgba     = splat_colors[splat_id];
 
     // Orthographic projection sets viewport.w = 1 (see Camera.getUniformData). The
-    // view→screen map is then linear in (x, y) and independent of view-space z.
+    // view->screen map is then linear in (x, y) and independent of view-space z.
     let is_ortho = camera.viewport.w > 0.5;
 
     let view_pos  = camera.view * vec4<f32>(position_world.xyz, 1.0);

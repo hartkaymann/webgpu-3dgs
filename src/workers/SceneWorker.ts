@@ -591,7 +591,7 @@ function transformQuaternion(
     };
 }
 
-// Quaternion (w, x, y, z) → 3x3 row-major rotation matrix. Matches the convention
+// Quaternion (w, x, y, z) -> 3x3 row-major rotation matrix. Matches the convention
 // used by quat_to_mat3 in preprocess_splats.wgsl so encode/decode stay consistent.
 function quatToMat3(w: number, x: number, y: number, z: number): number[] {
     const xx = x * x, yy = y * y, zz = z * z;
@@ -628,7 +628,7 @@ function mat3Determinant(m: number[]): number {
     );
 }
 
-// Proper rotation matrix (3x3 row-major) → quaternion (w, x, y, z) via Shepperd's
+// Proper rotation matrix (3x3 row-major) -> quaternion (w, x, y, z) via Shepperd's
 // method. Inverse of quatToMat3.
 function mat3ToQuat(m: number[]): { w: number; x: number; y: number; z: number } {
     const m00 = m[0], m01 = m[1], m02 = m[2];

@@ -3,7 +3,7 @@ import { useRenderer } from "../RendererContext";
 import { ToggleButtonGroup } from "../inputs/ToggleButtonGroup";
 import { VectorInput } from "../inputs/VectorInput";
 import { Checkbox } from "../inputs/Checkbox";
-import { applyTheme, getStoredTheme, Theme, VIEWPORT_BG } from "../theme";
+import { applyTheme, getStoredTheme, Theme, VIEWPORT_BG } from "../utils/theme";
 
 const RESOLUTION_TIP =
     "Internal render resolution. The scene is rendered at this pixel size, then scaled to fit the canvas - lower it for performance, raise it to supersample.";
@@ -19,6 +19,13 @@ export function ViewportControls() {
     useEffect(() => {
         controller.setBackgroundColor(...VIEWPORT_BG[theme]);
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [controller]);
+
+    useEffect(() => {
+        controller.onResolutionChanged = (w, h) => setResolution([w, h]);
+        return () => {
+            controller.onResolutionChanged = null;
+        };
     }, [controller]);
 
     const changeTheme = (next: Theme) => {

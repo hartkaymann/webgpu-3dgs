@@ -34,21 +34,6 @@
   width: 100%;
 }
 
-.input[type="number"] {
-  text-align: right;
-
-  // Firefox
-  -moz-appearance: textfield;
-  appearance: textfield;
-
-  // Chrome, Safari, Edge, Opera
-  &::-webkit-outer-spin-button,
-  &::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-}
-
 .fileInput {
   flex-grow: 1;
   max-width: 100%;
@@ -151,7 +136,7 @@ select.inlineControl {
   color: $text;
 }
 
-.inlineControl[type="number"] {
+.inlineControl[type="text"] {
   text-align: right;
 
   -moz-appearance: textfield;

@@ -34,6 +34,8 @@ export class Viewport {
   input: InputHandler;
   profiler: Profiler;
 
+  onResolutionChanged: ((width: number, height: number) => void) | null = null;
+
   // Device/Context objects
   clearPassDescriptor: GPURenderPassDescriptor;
 
@@ -287,6 +289,7 @@ export class Viewport {
       this.canvas.width = width;
       this.canvas.height = height;
       this.resize(width, height);
+      this.onResolutionChanged?.(width, height);
     }
 
     this.camera.aspect = dispW / dispH;

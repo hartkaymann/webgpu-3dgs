@@ -185,7 +185,7 @@ export function FlameGraphView() {
                                     height: `calc(${trackPct}% - 1px)`,
                                     backgroundColor: colorFor(bar.hue, bar.depth),
                                 }}
-                                title={`${bar.name} — ${formatTime(bar.time)}`}
+                                title={`${bar.name} - ${formatTime(bar.time)}`}
                             >
                                 <span className={styles.flameLabel}>{bar.name}</span>
                             </div>

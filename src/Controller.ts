@@ -32,12 +32,12 @@ export class Controller {
 
     private tileOverlay: TileDebugOverlay;
 
-    // Renderer → UI callbacks. The renderer never imports React; React (or any
-    // other consumer) registers these to observe renderer state.
+    // Renderer -> UI callbacks.
     onFps: ((fps: number) => void) | null = null;
     onSceneReady: (() => void) | null = null;
     onProfilingModeChanged: ((mode: ProfilingMode) => void) | null = null;
     onTargetFpsChanged: ((fps: number) => void) | null = null;
+    onResolutionChanged: ((width: number, height: number) => void) | null = null;
 
     bufferManager: BufferManager;
     bindGroupsManager: BindGroupManager;
@@ -86,6 +86,7 @@ export class Controller {
         this.sync = new SceneSyncer(this.scene, this.gpu.device, this.bufferManager, this.bindGroupsManager);
 
         this.viewports = new Viewport(this.gpu.device, this.scene, this.bufferManager, this.bindGroupsManager, this.profiler, canvas, wrapper);
+        this.viewports.onResolutionChanged = (w, h) => this.onResolutionChanged?.(w, h);
 
         this.tileOverlay = new TileDebugOverlay(canvas, this.viewports.splatRenderer, overlayHost);
     }
@@ -224,6 +225,11 @@ export class Controller {
     // Whether the loaded scene carries higher-order SH coefficients (f_rest).
     hasSphericalHarmonics(): boolean {
         return (this.scene.splats?.sphericalHarmonics?.length ?? 0) > 0;
+    }
+
+    // Read back the splat-only color (no grid/gizmo) for PNG export. See readImage().
+    async readImage() {
+        return this.viewports.splatRenderer.readImage();
     }
 
     setCameraNear(near: number) {

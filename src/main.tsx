@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./ui/App";
 import { Utils } from "./Utils";
-import { applyTheme, getStoredTheme } from "./ui/theme";
+import { applyTheme, getStoredTheme } from "./ui/utils/theme";
 
 import "./styles/global.scss";
 

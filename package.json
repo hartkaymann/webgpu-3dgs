@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "bluebird": "^3.7.2",
+    "expr-eval": "^2.0.2",
     "gl-matrix": "^3.4.3",
     "jquery": "^3.7.1",
     "react": "^19.2.7",

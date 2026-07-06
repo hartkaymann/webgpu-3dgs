@@ -8,7 +8,7 @@ struct CameraUniforms {
     viewport: vec4<f32>,
 };
 
-// std140: 6 × f32 scalars + 2 × f32 pad = 32 bytes, then 5 × vec4f = 80 bytes → 112 bytes total
+// std140: 6 × f32 scalars + 2 × f32 pad = 32 bytes, then 5 × vec4f = 80 bytes -> 112 bytes total
 struct GridConfig {
     gridSize:      f32,
     gridCellSize:  f32,
@@ -88,8 +88,8 @@ fn main_fs(
     let div = max(2.0, round(config.majorGridDiv));
 
     // --- Axis lines ---
-    // axisLines2.x: near worldPos.x=0 → Z axis
-    // axisLines2.y: near worldPos.y=0 → X axis
+    // axisLines2.x: near worldPos.x=0 -> Z axis
+    // axisLines2.y: near worldPos.y=0 -> X axis
     let axisDrawWidth = max(vec2f(config.axisLineWidth), uvDeriv);
     let axisLineAA    = uvDeriv * 1.5;
     var axisLines2    = smoothstep(axisDrawWidth + axisLineAA, axisDrawWidth - axisLineAA, abs(scaledWorldPos * 2.0));
@@ -125,7 +125,7 @@ fn main_fs(
     let majorGrid = mix(majorGrid2.x, 1.0, majorGrid2.y);
 
     // --- Axis color compositing ---
-    // axisLines2.x (near Z axis) → zAxisColor; axisLines2.y (near X axis) → xAxisColor
+    // axisLines2.x (near Z axis) -> zAxisColor; axisLines2.y (near X axis) -> xAxisColor
     let axisLines = mix(config.xAxisColor * axisLines2.y, config.zAxisColor, axisLines2.x);
 
     // --- Composite layers ---

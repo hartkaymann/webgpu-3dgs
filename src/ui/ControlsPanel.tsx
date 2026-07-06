@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { ViewportControls } from "./controls/ViewportControls";
 import { ImportControls } from "./controls/ImportControls";
+import { ExportControls } from "./controls/ExportControls";
 import { CameraControls } from "./controls/CameraControls";
 import { TileSizeControls } from "./controls/TileSizeControls";
 import { DrawModeControl } from "./controls/DrawModeControl";
@@ -37,6 +38,9 @@ export function ControlsPanel() {
                 </Group>
                 <Group title="Render Options" className={styles.toggles}>
                     <RenderToggles />
+                </Group>
+                <Group title="Export">
+                    <ExportControls />
                 </Group>
             </div>
         </div>

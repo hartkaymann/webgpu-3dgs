@@ -18,7 +18,7 @@ export interface GridConfig {
     zAxisColor: [number, number, number, number];
 }
 
-// GridConfig std140 layout: 6 × f32 + 2 × f32 pad = 32 bytes, then 5 × vec4f = 80 bytes → 112 bytes
+// GridConfig std140 layout: 6 × f32 + 2 × f32 pad = 32 bytes, then 5 × vec4f = 80 bytes -> 112 bytes
 const CONFIG_BUFFER_SIZE = 112;
 
 function writeConfigBuffer(config: GridConfig): Float32Array {

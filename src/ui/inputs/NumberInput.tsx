@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Parser } from "expr-eval";
 import styles from "./inputs.module.scss";
 
 interface NumberInputProps {
@@ -26,16 +27,24 @@ export function NumberInput({ label, inlineLabel, value, onCommit, disabled, ste
     }, [value]);
 
     const commit = () => {
-        const parsed = parseFloat(text);
-        if (Number.isFinite(parsed)) {
-            onCommit(parsed);
+        let result: number;
+        try {
+            result = Parser.evaluate(text);
+        } catch {
+            setText(String(value));
+            return;
+        }
+
+        if (Number.isFinite(result)) {
+            onCommit(result);
         } else {
             setText(String(value));
         }
     };
 
     const inputProps = {
-        type: "number" as const,
+        type: "text" as const,
+        inputMode: "decimal" as const,
         value: text,
         disabled,
         step,
