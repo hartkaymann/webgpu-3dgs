@@ -95,11 +95,18 @@ export class GaussianSplatRenderer implements IRenderer {
     private radixWorkgroupSize = 256;
     private lastSplatCount     = -1;  // splat count the binning buffers were last sized for
 
-    // 64-bit key, 8 bits per pass -> 8 passes total
+    // Buffer the radix ping-pong starts in, chosen so the sort always ends in _a. Flips
+    // with the pass-count parity (a tile-count change). Seeded to match createBindGroups(true).
+    private radixStartsInA = true;
+
+    // 64-bit key, 8 bits per pass. RADIX_PASSES is the max; the per-frame count comes from
+    // radixPassesFor(), which skips the always-zero high bytes of key_hi = tile_id.
     private static readonly RADIX_BITS                = 8;
     private static readonly RADIX_BUCKETS             = 1 << GaussianSplatRenderer.RADIX_BITS; // 256
     private static readonly RADIX_PASSES              = 64 / GaussianSplatRenderer.RADIX_BITS;
     private static readonly RADIX_WORKGROUP_PREFERRED = 256;
+    // Passes for the depth half (key_lo = bitcast(-depth), a full-range float).
+    private static readonly RADIX_DEPTH_PASSES        = 32 / GaussianSplatRenderer.RADIX_BITS;
 
     // One 256-byte-aligned uniform slot per pass, selected via dynamic offset.
     private static readonly RADIX_UNIFORM_STRIDE = 256;
@@ -129,6 +136,17 @@ export class GaussianSplatRenderer implements IRenderer {
 
     private maxRefsFor(splatCount: number): number {
         return Math.max(1, Math.max(1, splatCount) * Math.max(1, Config.MAX_TILES_PER_SPLAT));
+    }
+
+    // Radix passes this frame: depth passes (key_lo) + one per significant byte of the
+    // largest tile_id (key_hi). Skips key_hi's always-zero high bytes.
+    private radixPassesFor(tilesX: number, tilesY: number): number {
+        const maxTileId = tilesX * tilesY - 1;
+        const hiBytes = maxTileId <= 0 ? 0 : Math.ceil((32 - Math.clz32(maxTileId)) / 8);
+        return Math.min(
+            GaussianSplatRenderer.RADIX_PASSES,
+            GaussianSplatRenderer.RADIX_DEPTH_PASSES + hiBytes,
+        );
     }
 
     // Register one WorkgroupManager layout per binning stage. Workgroup *sizes* are
@@ -506,7 +524,8 @@ export class GaussianSplatRenderer implements IRenderer {
         ]);
 
         this.createBindGroupLayouts();
-        this.createBindGroups();
+        this.radixStartsInA = true;
+        this.createBindGroups(this.radixStartsInA);
         this.createPipelines(format);
         this.createPassDescriptors();
     }
@@ -656,7 +675,16 @@ export class GaussianSplatRenderer implements IRenderer {
         });
     }
 
-    private createBindGroups(): void {
+    // Builds all compute bind groups. `startsInA` picks the buffer the radix ping-pong
+    // starts in (emit target / pass-0 input) so the sort always ends in _a; re-call this
+    // whenever the pass-count parity flips (see rebin). Downstream readers stay on _a.
+    private createBindGroups(startsInA: boolean): void {
+        // start = where emit writes and pass 0 reads; other = the ping-pong partner.
+        const startKeys = startsInA ? "sort_keys_a"   : "sort_keys_b";
+        const startVals = startsInA ? "sort_values_a" : "sort_values_b";
+        const otherKeys = startsInA ? "sort_keys_b"   : "sort_keys_a";
+        const otherVals = startsInA ? "sort_values_b" : "sort_values_a";
+
         this.bindGroupManager.createGroup({
             name: "splat_input",
             layoutName: "splat_input",
@@ -718,19 +746,19 @@ export class GaussianSplatRenderer implements IRenderer {
                 { binding: 0, resource: { buffer: this.bufferManager.get("splat_binning_uniforms") } },
                 { binding: 1, resource: { buffer: this.bufferManager.get("projected_splats") } },
                 { binding: 2, resource: { buffer: this.bufferManager.get("splat_ref_offsets") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("sort_keys_a") } },
-                { binding: 4, resource: { buffer: this.bufferManager.get("sort_values_a") } },
+                { binding: 3, resource: { buffer: this.bufferManager.get(startKeys) } },
+                { binding: 4, resource: { buffer: this.bufferManager.get(startVals) } },
             ],
         });
 
-        // Stage 4A: histogram - ping-pong on which buffer is the current input
+        // Stage 4A: histogram - the "_a"/"_b" groups follow the ping-pong's start/other buffers.
         this.bindGroupManager.createGroup({
             name: "radix_histogram_a",
             layoutName: "radix_histogram_pass",
             entries: [
                 { binding: 0, resource: { buffer: this.bufferManager.get("radix_uniforms"), offset: 0, size: 8 } },
                 { binding: 1, resource: { buffer: this.bufferManager.get("ref_counter") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("sort_keys_a") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get(startKeys) } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("radix_group_histograms") } },
             ],
         });
@@ -741,7 +769,7 @@ export class GaussianSplatRenderer implements IRenderer {
             entries: [
                 { binding: 0, resource: { buffer: this.bufferManager.get("radix_uniforms"), offset: 0, size: 8 } },
                 { binding: 1, resource: { buffer: this.bufferManager.get("ref_counter") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("sort_keys_b") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get(otherKeys) } },
                 { binding: 3, resource: { buffer: this.bufferManager.get("radix_group_histograms") } },
             ],
         });
@@ -764,19 +792,19 @@ export class GaussianSplatRenderer implements IRenderer {
             });
         }
 
-        // Stage 4C: scatter - ping-pong on read/write direction.
-        // With 16 (even) passes, sorted data ends up back in _a buffers.
+        // Stage 4C: scatter - ping-pong on read/write direction. Even passes use "a_to_b"
+        // (start -> other), odd passes "b_to_a" (other -> start); the sort ends in _a.
         this.bindGroupManager.createGroup({
             name: "radix_scatter_a_to_b",
             layoutName: "radix_scatter_pass",
             entries: [
                 { binding: 0, resource: { buffer: this.bufferManager.get("radix_uniforms"), offset: 0, size: 8 } },
                 { binding: 1, resource: { buffer: this.bufferManager.get("ref_counter") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("sort_keys_a") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("sort_values_a") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get(startKeys) } },
+                { binding: 3, resource: { buffer: this.bufferManager.get(startVals) } },
                 { binding: 4, resource: { buffer: this.bufferManager.get("radix_group_histograms") } },
-                { binding: 5, resource: { buffer: this.bufferManager.get("sort_keys_b") } },
-                { binding: 6, resource: { buffer: this.bufferManager.get("sort_values_b") } },
+                { binding: 5, resource: { buffer: this.bufferManager.get(otherKeys) } },
+                { binding: 6, resource: { buffer: this.bufferManager.get(otherVals) } },
             ],
         });
 
@@ -786,11 +814,11 @@ export class GaussianSplatRenderer implements IRenderer {
             entries: [
                 { binding: 0, resource: { buffer: this.bufferManager.get("radix_uniforms"), offset: 0, size: 8 } },
                 { binding: 1, resource: { buffer: this.bufferManager.get("ref_counter") } },
-                { binding: 2, resource: { buffer: this.bufferManager.get("sort_keys_b") } },
-                { binding: 3, resource: { buffer: this.bufferManager.get("sort_values_b") } },
+                { binding: 2, resource: { buffer: this.bufferManager.get(otherKeys) } },
+                { binding: 3, resource: { buffer: this.bufferManager.get(otherVals) } },
                 { binding: 4, resource: { buffer: this.bufferManager.get("radix_group_histograms") } },
-                { binding: 5, resource: { buffer: this.bufferManager.get("sort_keys_a") } },
-                { binding: 6, resource: { buffer: this.bufferManager.get("sort_values_a") } },
+                { binding: 5, resource: { buffer: this.bufferManager.get(startKeys) } },
+                { binding: 6, resource: { buffer: this.bufferManager.get(startVals) } },
             ],
         });
 
@@ -1168,6 +1196,15 @@ export class GaussianSplatRenderer implements IRenderer {
         // Dispatch counts + scan level chain, all derived from the WorkgroupManager layouts.
         const sizes = this.binningSizes(splatCount);
 
+        // Radix passes for this tile grid. When the count's parity flips, rewire the
+        // ping-pong so the sort still ends in _a.
+        const radixPasses = this.radixPassesFor(tilesX, tilesY);
+        const startsInA = radixPasses % 2 === 0;
+        if (startsInA !== this.radixStartsInA) {
+            this.createBindGroups(startsInA);
+            this.radixStartsInA = startsInA;
+        }
+
         // Upload rasterizer/overlay uniforms: [tile_count.xy, viewport.xy, tile_size.xy, debug_ref, _pad].
         this.bufferManager.write("tile_uniforms",
             new Uint32Array([tilesX, tilesY, viewportWidth, viewportHeight, this.tileSizeX, this.tileSizeY, this.debugRef, 0]), 0);
@@ -1250,15 +1287,15 @@ export class GaussianSplatRenderer implements IRenderer {
             pass.end();
         }
 
-        // Stage 4: 8 radix sort passes, 3 sub-stages each (histogram -> scan -> scatter).
-        // Even passes read _a -> write _b; odd passes read _b -> write _a.
-        // With 8 (even) total passes, sorted data lands back in _a buffers.
+        // Stage 4: radixPasses radix sort passes, 3 sub-stages each (histogram -> scan -> scatter).
+        // Even passes read start -> write other; odd passes read other -> write start; the
+        // start buffer is chosen (see above) so sorted data always lands back in _a.
         const rgc = this.workgroups.getLayout("radix").dispatchSize[0];
         const stride = GaussianSplatRenderer.RADIX_UNIFORM_STRIDE;
 
         // One slot per pass, each selected at dispatch time via a dynamic offset.
         const radixSlots = new Uint32Array(GaussianSplatRenderer.RADIX_PASSES * (stride / 4));
-        for (let p = 0; p < GaussianSplatRenderer.RADIX_PASSES; p++) {
+        for (let p = 0; p < radixPasses; p++) {
             radixSlots[p * (stride / 4) + 0] = p * GaussianSplatRenderer.RADIX_BITS;
             radixSlots[p * (stride / 4) + 1] = rgc;
         }
@@ -1275,7 +1312,7 @@ export class GaussianSplatRenderer implements IRenderer {
         this.bufferManager.write("scan_uniforms", scanSlots, 0);
 
         this.profiler.pushScope("radix_sort");
-        for (let p = 0; p < GaussianSplatRenderer.RADIX_PASSES; p++) {
+        for (let p = 0; p < radixPasses; p++) {
             this.profiler.pushScope("pass");
 
             const slotOffset = p * stride;
