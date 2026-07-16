@@ -1,20 +1,19 @@
-// Generic per-tile exclusive Blelloch scan (one level of a recursive scan).
+// Phase 1 of 3 of the flat histogram scan: per-tile exclusive Blelloch scan
+// (mirrors prefix_scan_local.wgsl).
 //
 // Each workgroup exclusively scans its own tile of 2*WORKGROUP_SIZE elements of
 // `data` in place, and writes the tile's total sum to block_sums[wg]. The host
-// then scans block_sums (recursively) and calls scan_add to fold the per-tile
-// offsets back in - see scan_add.wgsl and GaussianSplatRenderer.scanHistogram.
+// then scans block_sums (radix_histogram_scan_blocks) and folds the per-tile
+// offsets back in (radix_histogram_scan_add) - see GaussianSplatRenderer.scanHistogram.
 //
-// `n` (element count for this level) comes from a dynamic-offset uniform slot so
-// the same pipeline can be reused for every recursion level. Elements past n are
-// padded with 0.
+// `n` is the histogram element count; elements past n are padded with 0.
 //
 // The Blelloch sweep + `shared_data` live in scan_core.wgsl (prepended via the
 // pipeline's `imports`); this shader only loads/stores around blelloch_scan_tile.
 
 struct ScanUniforms { n: u32 };
 
-@group(0) @binding(0) var<uniform>             uniforms:   ScanUniforms;   // dynamic offset
+@group(0) @binding(0) var<uniform>             uniforms:   ScanUniforms;
 @group(0) @binding(1) var<storage, read_write> data:       array<u32>;
 @group(0) @binding(2) var<storage, read_write> block_sums: array<u32>;
 

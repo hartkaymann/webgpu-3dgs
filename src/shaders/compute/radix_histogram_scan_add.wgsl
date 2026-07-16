@@ -1,17 +1,17 @@
-// Down-sweep add for the recursive exclusive scan (see scan_local.wgsl).
+// Phase 3 of 3 of the flat histogram scan: add block offsets to the local sums
+// (mirrors prefix_scan_add.wgsl).
 //
-// After the parent level has been scanned, block_sums[wg] holds the exclusive
-// prefix sum of all tile totals before tile wg. Adding it to every element in
-// that tile converts the within-tile exclusive sums into a global exclusive scan.
+// After radix_histogram_scan_blocks, block_sums[wg] holds the exclusive prefix
+// sum of all tile totals before tile wg. Adding it to every element in that
+// tile converts the within-tile exclusive sums into a global exclusive scan.
 //
 // Each thread updates the same two elements it owned in scan_local: indices
-// 2*gid.x and 2*gid.x+1. `n` comes from a dynamic-offset uniform slot (one per
-// recursion level). block_sums is declared read_write only to share a single
-// bind group / layout with scan_local; this kernel only reads it.
+// 2*gid.x and 2*gid.x+1. block_sums is declared read_write only to share a
+// single bind group / layout with scan_local; this kernel only reads it.
 
 struct ScanUniforms { n: u32 };
 
-@group(0) @binding(0) var<uniform>             uniforms:   ScanUniforms;   // dynamic offset
+@group(0) @binding(0) var<uniform>             uniforms:   ScanUniforms;
 @group(0) @binding(1) var<storage, read_write> data:       array<u32>;
 @group(0) @binding(2) var<storage, read_write> block_sums: array<u32>;
 
