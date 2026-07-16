@@ -107,6 +107,9 @@ export class GaussianSplatRenderer implements IRenderer {
     private static readonly RADIX_WORKGROUP_PREFERRED = 256;
     // Passes for the depth half (key_lo = bitcast(-depth), a full-range float).
     private static readonly RADIX_DEPTH_PASSES        = 32 / GaussianSplatRenderer.RADIX_BITS;
+    // Refs per thread in histogram/scatter (coarsening). Shrinks the workgroup count and
+    // with it the histogram table + scan work by the same factor. Tunable: 4/8/16.
+    private static readonly RADIX_ELEMENTS_PER_THREAD = 8;
 
     // One 256-byte-aligned uniform slot per pass, selected via dynamic offset.
     private static readonly RADIX_UNIFORM_STRIDE = 256;
@@ -161,6 +164,13 @@ export class GaussianSplatRenderer implements IRenderer {
         });
         this.workgroups.register({
             name: "radix", problemSize: [maxRefs, 1, 1],
+            strategyFn: linear1D,
+            strategyArgs: [GaussianSplatRenderer.RADIX_WORKGROUP_PREFERRED, GaussianSplatRenderer.RADIX_ELEMENTS_PER_THREAD],
+        });
+        // One thread per ref (uncoarsened) for identify-tile-ranges, which walks every
+        // sorted ref; the coarsened "radix" dispatch is 8x too small for it.
+        this.workgroups.register({
+            name: "refs-1d", problemSize: [maxRefs, 1, 1],
             strategyFn: linear1D, strategyArgs: [GaussianSplatRenderer.RADIX_WORKGROUP_PREFERRED],
         });
         this.workgroups.register({
@@ -217,6 +227,7 @@ export class GaussianSplatRenderer implements IRenderer {
     } {
         const maxRefs = this.maxRefsFor(splatCount);
         this.workgroups.update("radix",      { problemSize: [maxRefs, 1, 1] });
+        this.workgroups.update("refs-1d",    { problemSize: [maxRefs, 1, 1] });
         this.workgroups.update("splat-scan", { problemSize: [splatCount, 1, 1] });
 
         const radixGroupCount = this.workgroups.getLayout("radix").dispatchSize[0];
@@ -948,7 +959,10 @@ export class GaussianSplatRenderer implements IRenderer {
             type: "compute",
             layout: radixHistogramLayout,
             code: radix_histogram_src,
-            codeConstants: { WORKGROUP_SIZE: this.radixWorkgroupSize },
+            codeConstants: {
+                WORKGROUP_SIZE: this.radixWorkgroupSize,
+                ELEMENTS_PER_THREAD: GaussianSplatRenderer.RADIX_ELEMENTS_PER_THREAD,
+            },
             compute: { entryPoint: "main" },
         });
 
@@ -976,7 +990,10 @@ export class GaussianSplatRenderer implements IRenderer {
             type: "compute",
             layout: radixScatterLayout,
             code: radix_scatter_src,
-            codeConstants: { WORKGROUP_SIZE: this.radixWorkgroupSize },
+            codeConstants: {
+                WORKGROUP_SIZE: this.radixWorkgroupSize,
+                ELEMENTS_PER_THREAD: GaussianSplatRenderer.RADIX_ELEMENTS_PER_THREAD,
+            },
             compute: { entryPoint: "main" },
         });
 
@@ -1350,12 +1367,12 @@ export class GaussianSplatRenderer implements IRenderer {
         }
         this.profiler.popScope();
 
-        // Stage 5: walk sorted sort_keys_a -> tile_offsets
+        // Stage 5: walk sorted sort_keys_a -> tile_offsets.
         {
             const pass = this.profiler.beginComputePass("identify-tile-ranges", commandEncoder);
             pass.setPipeline(this.identifyTileRangesPipeline);
             pass.setBindGroup(0, this.bindGroupManager.getGroup("tile_range_identification"));
-            pass.dispatchWorkgroups(rgc);
+            pass.dispatchWorkgroups(this.workgroups.getLayout("refs-1d").dispatchSize[0]);
             pass.end();
         }
 

@@ -6,7 +6,10 @@
 // This makes each digit's counts contiguous, so a single linear exclusive scan
 // over the whole table (see scan_local.wgsl) yields base_d + prefix_wg directly.
 //
-// One invocation per ref; guards with ref_counter so inactive lanes early-out.
+// Each invocation counts ELEMENTS_PER_THREAD refs (coarsening), so one workgroup
+// covers WORKGROUP_SIZE * ELEMENTS_PER_THREAD refs and the table stays small.
+// Rounds are interleaved (round r, lane t -> base + r*WORKGROUP_SIZE + t) for
+// coalesced reads; guards each ref against ref_counter.
 
 struct RadixUniforms {
     bit_offset:     u32,
@@ -34,7 +37,6 @@ var<workgroup> local_hist: array<atomic<u32>, 256>;
 
 @compute @workgroup_size(__WORKGROUP_SIZE__)
 fn main(
-    @builtin(global_invocation_id) gid:  vec3<u32>,
     @builtin(local_invocation_id)  lid:  vec3<u32>,
     @builtin(workgroup_id)         wgid: vec3<u32>,
 ) {
@@ -46,10 +48,14 @@ fn main(
     }
     workgroupBarrier();
 
-    // Count this lane's element into the local histogram.
-    if (gid.x < ref_counter[0]) {
-        let d = digit(in_keys[gid.x], uniforms.bit_offset);
-        atomicAdd(&local_hist[d], 1u);
+    // Count this lane's elements into the local histogram, one per round.
+    let base = wgid.x * (__WORKGROUP_SIZE__u * __ELEMENTS_PER_THREAD__u);
+    for (var r = 0u; r < __ELEMENTS_PER_THREAD__u; r = r + 1u) {
+        let idx = base + r * __WORKGROUP_SIZE__u + lid.x;
+        if (idx < ref_counter[0]) {
+            let d = digit(in_keys[idx], uniforms.bit_offset);
+            atomicAdd(&local_hist[d], 1u);
+        }
     }
     workgroupBarrier();
 

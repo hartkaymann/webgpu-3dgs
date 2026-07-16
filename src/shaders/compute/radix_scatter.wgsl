@@ -1,6 +1,7 @@
 // Phase C of the parallel radix sort: scatter elements to their sorted positions.
-// Each invocation reads one (key, value) pair, determines its output index from
-// the pre-scanned offsets, and writes to the output buffers.
+// Each invocation handles ELEMENTS_PER_THREAD (key, value) pairs (coarsening), one
+// per round; a workgroup covers a chunk of WORKGROUP_SIZE * ELEMENTS_PER_THREAD
+// elements. Each element's output index comes from the pre-scanned offsets.
 //
 // The output index for element i with digit d in workgroup wg is:
 //   radix_group_offsets[d * num_wg + wg] - global start of bucket d plus the
@@ -9,15 +10,19 @@
 //                                          combined by the digit-major histogram scan)
 // + local rank                           - this element's rank within (wg, d)
 //
-// The local rank is the number of EARLIER lanes (in local_invocation_index order)
-// in this workgroup that share this lane's digit - a stable counting sort, which is
-// what a correct LSD radix sort requires across passes.
+// The local rank is the number of EARLIER elements (in original input order) in
+// this workgroup's chunk that share this element's digit - a stable counting sort,
+// which is what a correct LSD radix sort requires across passes.
 //
-// It is computed with subgroup ops in two levels:
+// It is computed with subgroup ops in two levels, per round:
 //   1. Within each subgroup, a per-digit match (one subgroupBallot per digit bit)
 //      yields the lane's rank among same-digit lanes in the subgroup.
 //   2. A short loop over the subgroups adds the count of the same digit from
 //      earlier subgroups, in subgroup order, via a single 256-entry scratch array.
+// Rounds are interleaved (round r, lane t -> chunk_base + r*WORKGROUP_SIZE + t), so
+// within a round element order = lane order and rounds ascend in original order.
+// The scratch array is NOT reset between rounds - it carries the per-digit counts
+// forward, which extends the stable rank across the whole chunk for free.
 
 enable subgroups;
 
@@ -82,74 +87,81 @@ fn leader_lane(mask: vec4<u32>) -> u32 {
     return 0u;
 }
 
-// Running per-digit base, reused across the subgroup loop. Each leader writes only
-// its own digit's slot within a single iteration, so plain (non-atomic) storage is
-// race-free, and the workgroupBarrier between iterations orders the subgroups.
+// Running per-digit base, carried across the subgroup loop AND across rounds. Each
+// leader writes only its own digit's slot within a single iteration, so plain
+// (non-atomic) storage is race-free, and the workgroupBarrier between iterations
+// orders the subgroups (its last iteration also fences the next round's reads).
 var<workgroup> digit_base: array<u32, 256>;
 
 @compute @workgroup_size(__WORKGROUP_SIZE__)
 fn main(
-    @builtin(global_invocation_id) gid:    vec3<u32>,
     @builtin(local_invocation_id)  lid:    vec3<u32>,
     @builtin(workgroup_id)         wgid:   vec3<u32>,
     @builtin(subgroup_invocation_id) sgid: u32,
     @builtin(subgroup_size)        sgsize: u32,
 ) {
-    let in_range = gid.x < ref_counter[0];
-
-    var d = INACTIVE;
-    if (in_range) {
-        d = digit(in_keys[gid.x], uniforms.bit_offset);
-    }
-
-    // 1. Within-subgroup peer mask: lanes that are active AND share this digit.
-    //    Start from the active lanes, then narrow by matching each of the 8 digit
-    //    bits. Excluding inactive lanes up front is essential - INACTIVE (all bits
-    //    set) would otherwise match the real digit-255 group on its low 8 bits.
-    var peers: vec4<u32> = subgroupBallot(in_range);
-    for (var b = 0u; b < 8u; b = b + 1u) {
-        let bit_set = ((d >> b) & 1u) == 1u;
-        let ballot  = subgroupBallot(bit_set);
-        peers = select(peers & ~ballot, peers & ballot, bit_set);
-    }
-
-    let rank_sg  = ballot_count(peers & lanes_below(sgid)); // rank among same-digit lanes
-    let count_sg = ballot_count(peers);                     // same-digit lanes in subgroup
-    let is_leader = rank_sg == 0u;
-    let lead = leader_lane(peers);
-
-    // 2. Add the count of the same digit from earlier subgroups, in subgroup order.
+    let num_wg = uniforms.num_workgroups;
     let sg_id  = lid.x / sgsize;
     let num_sg = (__WORKGROUP_SIZE__ + sgsize - 1u) / sgsize;
+    let chunk_base = wgid.x * (__WORKGROUP_SIZE__u * __ELEMENTS_PER_THREAD__u);
 
     digit_base[lid.x] = 0u; // workgroup size is 256, so each lane clears one bucket
     workgroupBarrier();
 
-    var my_prefix = 0u;
-    for (var s = 0u; s < num_sg; s = s + 1u) {
-        // Only the active subgroup's leaders touch digit_base, each at a distinct
-        // digit slot, so there is no intra-iteration race.
-        var base = 0u;
-        if (sg_id == s && is_leader && in_range) {
-            base = digit_base[d];
-            digit_base[d] = base + count_sg;
-        }
-        // Broadcast the leader's exclusive prefix to its peers. Called by the whole
-        // workgroup so the subgroup op stays in uniform control flow; the result is
-        // only consumed by lanes in subgroup s.
-        let shared_base = subgroupShuffle(base, lead);
-        if (sg_id == s) {
-            my_prefix = shared_base;
-        }
-        workgroupBarrier();
-    }
+    // Fixed trip count keeps the subgroup ops below in uniform control flow.
+    for (var r = 0u; r < __ELEMENTS_PER_THREAD__u; r = r + 1u) {
+        let idx = chunk_base + r * __WORKGROUP_SIZE__u + lid.x;
+        let in_range = idx < ref_counter[0];
 
-    // 3. Scatter to the final sorted position.
-    if (in_range) {
-        let num_wg = uniforms.num_workgroups;
-        let global_pos = radix_group_offsets[d * num_wg + wgid.x]
-                       + my_prefix + rank_sg;
-        out_keys[global_pos]   = in_keys[gid.x];
-        out_values[global_pos] = in_values[gid.x];
+        var d = INACTIVE;
+        if (in_range) {
+            d = digit(in_keys[idx], uniforms.bit_offset);
+        }
+
+        // 1. Within-subgroup peer mask: lanes that are active AND share this digit.
+        //    Start from the active lanes, then narrow by matching each of the 8 digit
+        //    bits. Excluding inactive lanes up front is essential - INACTIVE (all bits
+        //    set) would otherwise match the real digit-255 group on its low 8 bits.
+        var peers: vec4<u32> = subgroupBallot(in_range);
+        for (var b = 0u; b < 8u; b = b + 1u) {
+            let bit_set = ((d >> b) & 1u) == 1u;
+            let ballot  = subgroupBallot(bit_set);
+            peers = select(peers & ~ballot, peers & ballot, bit_set);
+        }
+
+        let rank_sg  = ballot_count(peers & lanes_below(sgid)); // rank among same-digit lanes
+        let count_sg = ballot_count(peers);                     // same-digit lanes in subgroup
+        let is_leader = rank_sg == 0u;
+        let lead = leader_lane(peers);
+
+        // 2. Add the count of the same digit from earlier subgroups, in subgroup
+        //    order. digit_base is not reset between rounds, so this also carries the
+        //    counts from all earlier rounds - the stable rank spans the whole chunk.
+        var my_prefix = 0u;
+        for (var s = 0u; s < num_sg; s = s + 1u) {
+            // Only the active subgroup's leaders touch digit_base, each at a distinct
+            // digit slot, so there is no intra-iteration race.
+            var base = 0u;
+            if (sg_id == s && is_leader && in_range) {
+                base = digit_base[d];
+                digit_base[d] = base + count_sg;
+            }
+            // Broadcast the leader's exclusive prefix to its peers. Called by the whole
+            // workgroup so the subgroup op stays in uniform control flow; the result is
+            // only consumed by lanes in subgroup s.
+            let shared_base = subgroupShuffle(base, lead);
+            if (sg_id == s) {
+                my_prefix = shared_base;
+            }
+            workgroupBarrier();
+        }
+
+        // 3. Scatter to the final sorted position.
+        if (in_range) {
+            let global_pos = radix_group_offsets[d * num_wg + wgid.x]
+                           + my_prefix + rank_sg;
+            out_keys[global_pos]   = in_keys[idx];
+            out_values[global_pos] = in_values[idx];
+        }
     }
 }
